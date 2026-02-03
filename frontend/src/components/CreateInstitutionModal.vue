@@ -1,13 +1,13 @@
 <template>
   <v-dialog v-model="isOpen" max-width="600" persistent @click:outside="close">
     <v-card>
-      <v-card-title>Create new institution</v-card-title>
+      <v-card-title>Создание орагнизации</v-card-title>
       <v-divider />
       <v-card-text>
         <v-form ref="formRef">
           <v-text-field
             v-model="form.username"
-            label="Username (for institution login)"
+            label="Имя пользовтеля (для входа орагнизации)"
             variant="outlined"
             density="comfortable"
             :error-messages="errors.username"
@@ -15,7 +15,7 @@
           />
           <v-text-field
             v-model="form.password"
-            label="Password"
+            label="Пароль"
             type="password"
             variant="outlined"
             density="comfortable"
@@ -24,7 +24,7 @@
           />
           <v-text-field
             v-model="form.institution_name"
-            label="Institution name"
+            label="Название организации"
             variant="outlined"
             density="comfortable"
             :error-messages="errors.institution_name"
@@ -32,7 +32,7 @@
           />
           <v-text-field
             v-model="form.institution_type"
-            label="Institution type"
+            label="Тип организации"
             variant="outlined"
             density="comfortable"
             :error-messages="errors.institution_type"
@@ -40,7 +40,7 @@
           />
           <v-textarea
             v-model="form.address"
-            label="Address"
+            label="Адрес"
             variant="outlined"
             density="comfortable"
             rows="2"
@@ -49,7 +49,7 @@
           />
           <v-text-field
             v-model="form.contact_person"
-            label="Contact person"
+            label="Контактное лицо"
             variant="outlined"
             density="comfortable"
             :error-messages="errors.contact_person"
@@ -57,7 +57,7 @@
           />
           <v-text-field
             v-model="form.phone"
-            label="Phone"
+            label="Номер телефона"
             variant="outlined"
             density="comfortable"
             :error-messages="errors.phone"
@@ -65,7 +65,7 @@
           />
           <v-text-field
             v-model="form.email"
-            label="Email"
+            label="Почта"
             type="email"
             variant="outlined"
             density="comfortable"
@@ -76,8 +76,8 @@
       <v-divider />
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="close">Cancel</v-btn>
-        <v-btn color="primary" :loading="loading" @click="submit">Create</v-btn>
+        <v-btn variant="text" @click="close">Отмена</v-btn>
+        <v-btn color="primary" :loading="loading" @click="submit">Создать</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

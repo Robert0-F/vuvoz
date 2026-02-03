@@ -81,20 +81,20 @@ defineEmits<{
 const statusFilter = ref<string>('all')
 
 const statusOptions = [
-  { title: 'All', value: 'all' },
-  { title: 'New', value: 'new' },
-  { title: 'Accepted', value: 'accepted' },
-  { title: 'Completed', value: 'completed' },
+  { title: 'Все', value: 'all' },
+  { title: 'Новые', value: 'new' },
+  { title: 'Принятые', value: 'accepted' },
+  { title: 'Завершеные', value: 'completed' },
 ]
 
 const headers = computed(() => {
   const h = [
     { title: 'ID', key: 'id', sortable: true, width: '80' },
-    { title: 'Institution', key: 'institution_name' },
-    { title: 'Weight (kg)', key: 'paper_weight_kg' },
-    { title: 'Desired date', key: 'desired_date' },
-    { title: 'Status', key: 'status' },
-    { title: 'Created', key: 'created_at' },
+    { title: 'Организация', key: 'institution_name' },
+    { title: 'Вес (кг)', key: 'paper_weight_kg' },
+    { title: 'Желаемая дата вывоза', key: 'desired_date' },
+    { title: 'Статус', key: 'status' },
+    { title: 'Дата создания', key: 'created_at' },
   ]
   if (props.showActions) {
     h.push({ title: '', key: 'actions', sortable: false, width: '120' })
@@ -111,9 +111,9 @@ const filteredRequests = computed(() => {
 
 function formatStatus(s: RequestStatus) {
   const map: Record<RequestStatus, string> = {
-    new: 'New',
-    accepted: 'Accepted',
-    completed: 'Completed',
+    new: 'Новые',
+    accepted: 'Принятые',
+    completed: 'Завершеные',
   }
   return map[s] || s
 }

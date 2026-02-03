@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-app-bar color="primary" density="compact">
-      <v-app-bar-title>Waste Paper Collection — Company</v-app-bar-title>
+      <v-app-bar-title>Компания по вывозу - </v-app-bar-title>
       <v-spacer />
       <span class="mr-2">{{ userStore.user?.username }}</span>
       <v-btn variant="text" icon="mdi-logout" @click="logout" />
@@ -11,23 +11,23 @@
       <v-container fluid>
         <!-- Company info -->
         <v-card class="mb-6" variant="tonal">
-          <v-card-title>Company information</v-card-title>
+          <v-card-title>Информация о компании</v-card-title>
           <v-card-text v-if="userStore.companyProfile">
             <v-row>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Company name</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Название компании</div>
                 <div>{{ userStore.companyProfile.company_name }}</div>
               </v-col>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Contact email</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Почта</div>
                 <div>{{ userStore.companyProfile.contact_email }}</div>
               </v-col>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Phone</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Номер телефона</div>
                 <div>{{ userStore.companyProfile.contact_phone }}</div>
               </v-col>
               <v-col cols="12">
-                <div class="text-subtitle-2 text-medium-emphasis">Address</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Адрес</div>
                 <div>{{ userStore.companyProfile.address }}</div>
               </v-col>
             </v-row>
@@ -38,7 +38,7 @@
         <v-row class="mb-6">
           <v-col cols="12" sm="4">
             <StatsCard
-              title="Total requests"
+              title="Всего запросов"
               :value="stats.totalRequests"
               icon="mdi-file-document-multiple"
               color="primary"
@@ -46,7 +46,7 @@
           </v-col>
           <v-col cols="12" sm="4">
             <StatsCard
-              title="Completed"
+              title="Выполненых запросов"
               :value="stats.completed"
               icon="mdi-check-circle"
               color="success"
@@ -54,7 +54,7 @@
           </v-col>
           <v-col cols="12" sm="4">
             <StatsCard
-              title="Total weight (kg)"
+              title="Вывезено (кг)"
               :value="stats.totalWeight"
               icon="mdi-weight-kilogram"
               color="info"
@@ -65,7 +65,7 @@
         <!-- My Institutions -->
         <v-card class="mb-6">
           <v-card-title class="d-flex align-center">
-            My institutions
+            Мои организации
             <v-spacer />
             <v-btn color="primary" prepend-icon="mdi-plus" @click="showCreateModal = true">
               Add institution
@@ -79,9 +79,9 @@
             item-value="id"
           >
             <template #item.actions="{ item }">
-              <v-btn size="small" variant="text" @click="editInstitution(item)">Edit</v-btn>
+              <v-btn size="small" variant="text" @click="editInstitution(item)">Изменить</v-btn>
               <v-btn size="small" variant="text" color="error" @click="confirmDelete(item)">
-                Delete
+                Удалить
               </v-btn>
             </template>
           </v-data-table>
@@ -89,7 +89,7 @@
 
         <!-- Incoming requests -->
         <RequestTable
-          title="Incoming requests"
+          title="Запросы на вывоз"
           :requests="requests"
           :loading="loadingRequests"
           show-status-filter
@@ -104,19 +104,19 @@
 
     <v-dialog v-model="statusDialog" max-width="400" persistent>
       <v-card v-if="selectedRequest">
-        <v-card-title>Update status</v-card-title>
+        <v-card-title>Изменение статуса</v-card-title>
         <v-card-text>
           <v-select
             v-model="statusUpdate"
             :items="statusItems"
-            label="Status"
+            label="Статус"
             variant="outlined"
           />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="statusDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="updatingStatus" @click="saveStatus">Save</v-btn>
+          <v-btn variant="text" @click="statusDialog = false">Отмена</v-btn>
+          <v-btn color="primary" :loading="updatingStatus" @click="saveStatus">Сохранить</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -167,17 +167,17 @@ const deleting = ref(false)
 
 const institutionHeaders = [
   { title: 'ID', key: 'id', width: '80' },
-  { title: 'Name', key: 'institution_name' },
-  { title: 'Type', key: 'institution_type' },
-  { title: 'Contact', key: 'contact_person' },
-  { title: 'Email', key: 'email' },
+  { title: 'Название организации', key: 'institution_name' },
+  { title: 'Тип', key: 'institution_type' },
+  { title: 'Контакты', key: 'contact_person' },
+  
   { title: 'Actions', key: 'actions', sortable: false, width: '160' },
 ]
 
 const statusItems = [
-  { title: 'New', value: 'new' },
-  { title: 'Accepted', value: 'accepted' },
-  { title: 'Completed', value: 'completed' },
+  { title: 'Новый', value: 'new' },
+  { title: 'Принятый', value: 'accepted' },
+  { title: 'Завершеный', value: 'completed' },
 ]
 
 const stats = computed(() => {

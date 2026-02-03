@@ -4,16 +4,16 @@
       <v-col cols="12" sm="8" md="4">
         <v-card class="pa-6" elevation="8">
           <v-card-title class="text-h5 text-center mb-4">
-            Waste Paper Collection
+            Комания Огранизация по вывозу Макулатуры
           </v-card-title>
           <v-card-subtitle class="text-center mb-4">
-            Sign in to continue
+            Вход в систему 
           </v-card-subtitle>
 
           <v-form @submit.prevent="onSubmit" ref="formRef">
             <v-text-field
               v-model="username"
-              label="Username"
+              label="Логин"
               type="text"
               variant="outlined"
               :error-messages="errors.username"
@@ -23,7 +23,7 @@
             />
             <v-text-field
               v-model="password"
-              label="Password"
+              label="Пароль"
               type="password"
               variant="outlined"
               :error-messages="errors.password"

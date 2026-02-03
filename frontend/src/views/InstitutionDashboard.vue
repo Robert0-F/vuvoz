@@ -1,7 +1,7 @@
 <template>
   <div>
     <v-app-bar color="primary" density="compact">
-      <v-app-bar-title>Waste Paper Collection — Institution</v-app-bar-title>
+      <v-app-bar-title>Орагнизация</v-app-bar-title>
       <v-spacer />
       <span class="mr-2">{{ userStore.user?.username }}</span>
       <v-btn variant="text" icon="mdi-logout" @click="logout" />
@@ -15,23 +15,23 @@
           <v-card-text v-if="userStore.institutionProfile">
             <v-row>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Institution name</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Название организации</div>
                 <div>{{ userStore.institutionProfile.institution_name }}</div>
               </v-col>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Type</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Тип</div>
                 <div>{{ userStore.institutionProfile.institution_type }}</div>
               </v-col>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Contact person</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Контактное лицо</div>
                 <div>{{ userStore.institutionProfile.contact_person }}</div>
               </v-col>
               <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Email / Phone</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Почта / Номер</div>
                 <div>{{ userStore.institutionProfile.email }} / {{ userStore.institutionProfile.phone }}</div>
               </v-col>
               <v-col cols="12">
-                <div class="text-subtitle-2 text-medium-emphasis">Address</div>
+                <div class="text-subtitle-2 text-medium-emphasis">Адрес</div>
                 <div>{{ userStore.institutionProfile.address }}</div>
               </v-col>
             </v-row>
@@ -60,7 +60,7 @@
 
         <!-- New request form -->
         <v-card class="mb-6">
-          <v-card-title>New collection request</v-card-title>
+          <v-card-title>Новый запрос на вывоз</v-card-title>
           <v-divider />
           <v-card-text>
             <v-form @submit.prevent="submitRequest" ref="formRef">
@@ -68,7 +68,7 @@
                 <v-col cols="12" sm="4">
                   <v-text-field
                     v-model="form.paper_weight_kg"
-                    label="Paper weight (kg)"
+                    label="Вес бумаги (кг)"
                     type="number"
                     min="0"
                     step="0.01"
@@ -80,7 +80,7 @@
                 <v-col cols="12" sm="4">
                   <v-text-field
                     v-model="form.desired_date"
-                    label="Desired date"
+                    label="Дата вывоза"
                     type="date"
                     variant="outlined"
                     density="comfortable"
@@ -88,7 +88,7 @@
                 </v-col>
                 <v-col cols="12" sm="4" class="d-flex align-center">
                   <v-btn type="submit" color="primary" :loading="submitting">
-                    Submit request
+                    Подтвердите заявку
                   </v-btn>
                 </v-col>
               </v-row>
