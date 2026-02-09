@@ -9,12 +9,18 @@ from .views import (
     CurrentUserView,
     InstitutionStatsView,
     InstitutionViewSet,
+    NewsArticleViewSet,
+    NotificationViewSet,
+    PriceListViewSet,
 )
 
 router = DefaultRouter()
 router.register(r'company-profiles', CompanyProfileViewSet, basename='companyprofile')
 router.register(r'institutions', InstitutionViewSet, basename='institution')
 router.register(r'collection-requests', CollectionRequestViewSet, basename='collectionrequest')
+router.register(r'news', NewsArticleViewSet, basename='news')
+router.register(r'prices', PriceListViewSet, basename='pricelist')
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

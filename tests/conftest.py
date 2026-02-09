@@ -64,3 +64,26 @@ def company_client(api_client, company_user):
 def institution_client(api_client, institution_user):
     api_client.force_authenticate(user=institution_user)
     return api_client
+
+
+@pytest.fixture
+def admin_user(db):
+    User = get_user_model()
+    user = User.objects.create_user(
+        username='admin@test.com',
+        email='admin@test.com',
+        password='test123',
+        is_staff=True,
+        is_active=True,
+    )
+    user.role = 'admin'
+    user.save(update_fields=['role'])
+    return user
+
+
+@pytest.fixture
+def admin_client(admin_user):
+    """Separate client for admin to avoid shared auth state with api_client."""
+    client = APIClient()
+    client.force_authenticate(user=admin_user)
+    return client

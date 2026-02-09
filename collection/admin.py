@@ -1,7 +1,15 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import CollectionRequest, CompanyProfile, CustomUser, InstitutionProfile
+from .models import (
+    CollectionRequest,
+    CompanyProfile,
+    CustomUser,
+    InAppNotification,
+    InstitutionProfile,
+    NewsArticle,
+    PriceList,
+)
 
 
 @admin.register(CustomUser)
@@ -56,18 +64,27 @@ class InstitutionProfileAdmin(admin.ModelAdmin):
 @admin.register(CollectionRequest)
 class CollectionRequestAdmin(admin.ModelAdmin):
     list_display = (
+        'request_number',
         'id',
         'institution',
         'receiving_company',
         'status',
+        'urgency',
+        'material_type',
         'paper_weight_kg',
+        'estimated_amount',
+        'estimated_value',
+        'actual_amount',
+        'actual_value',
         'desired_date',
+        'estimated_collection_date',
+        'actual_collection_date',
         'created_at',
     )
-    list_filter = ('status', 'receiving_company', 'created_at')
-    search_fields = ('institution__institution_name', 'comment')
+    list_filter = ('status', 'urgency', 'material_type', 'receiving_company', 'created_at')
+    search_fields = ('request_number', 'institution__institution_name', 'comment', 'internal_notes')
     raw_id_fields = ('institution', 'receiving_company')
-    readonly_fields = ('created_at',)
+    readonly_fields = ('created_at', 'completed_at', 'estimated_value', 'request_number')
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -78,3 +95,29 @@ class CollectionRequestAdmin(admin.ModelAdmin):
         if hasattr(request.user, 'institution_profile'):
             return qs.filter(institution=request.user.institution_profile)
         return qs.none()
+
+
+@admin.register(NewsArticle)
+class NewsArticleAdmin(admin.ModelAdmin):
+    list_display = ('title', 'created_at', 'is_published', 'author')
+    list_filter = ('is_published', 'created_at')
+    search_fields = ('title', 'content')
+    raw_id_fields = ('author',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(PriceList)
+class PriceListAdmin(admin.ModelAdmin):
+    list_display = ('material_type', 'price_per_kg', 'valid_from', 'valid_to', 'is_active', 'created_at')
+    list_filter = ('material_type', 'is_active', 'valid_from')
+    search_fields = ('material_type',)
+    ordering = ('-valid_from',)
+
+
+@admin.register(InAppNotification)
+class InAppNotificationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'title', 'read', 'created_at')
+    list_filter = ('read', 'created_at')
+    search_fields = ('title', 'message')
+    raw_id_fields = ('user',)
+    readonly_fields = ('created_at',)

@@ -1,28 +1,10 @@
 <template>
   <v-dialog v-model="isOpen" max-width="600" persistent @click:outside="close">
     <v-card>
-      <v-card-title>Создание организации</v-card-title>
+      <v-card-title>Редактирование организации</v-card-title>
       <v-divider />
       <v-card-text>
         <v-form ref="formRef">
-          <v-text-field
-            v-model="form.email"
-            label="Почта (для входа в систему)"
-            type="email"
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.email"
-            class="mb-2"
-          />
-          <v-text-field
-            v-model="form.password"
-            label="Пароль (необязательно — будет сгенерирован)"
-            type="password"
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.password"
-            class="mb-2"
-          />
           <v-text-field
             v-model="form.institution_name"
             label="Название учреждения"
@@ -59,11 +41,20 @@
           <v-text-field
             v-model="form.phone"
             label="Номер телефона *"
+            hint="Формат: +7 XXX XXX XX XX"
+            persistent-hint
             variant="outlined"
             density="comfortable"
             :error-messages="errors.phone"
-            hint="Формат: +7 XXX XXX XX XX"
-            persistent-hint
+            class="mb-2"
+          />
+          <v-text-field
+            v-model="form.email"
+            label="Почта (для входа)"
+            type="email"
+            variant="outlined"
+            density="comfortable"
+            :error-messages="errors.email"
           />
         </v-form>
       </v-card-text>
@@ -71,7 +62,7 @@
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="close">Отмена</v-btn>
-        <v-btn color="primary" :loading="loading" @click="submit">Создать</v-btn>
+        <v-btn color="primary" :loading="loading" @click="submit">Сохранить</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -80,38 +71,55 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
 import { api } from '@/api/axios'
-import type { CreateInstitutionPayload } from '@/types'
+import type { InstitutionProfile } from '@/types'
 
 const isOpen = defineModel<boolean>({ default: false })
 
-const emit = defineEmits<{
-  created: []
+const props = defineProps<{
+  institution: InstitutionProfile | null
 }>()
 
-const form = reactive<CreateInstitutionPayload>({
-  email: '',
-  password: '',
+const emit = defineEmits<{
+  saved: []
+}>()
+
+const form = reactive({
   institution_name: '',
+  institution_type: '',
   address: '',
   contact_person: '',
   phone: '',
-  institution_type: '',
+  email: '',
 })
 
 const errors = reactive<Record<string, string>>({})
 const loading = ref(false)
 const formRef = ref<{ validate: () => Promise<{ valid: boolean }> } | null>(null)
 
+watch(
+  () => props.institution,
+  (inst) => {
+    if (inst) {
+      form.institution_name = inst.institution_name ?? ''
+      form.institution_type = inst.institution_type ?? ''
+      form.address = inst.address ?? ''
+      form.contact_person = inst.contact_person ?? ''
+      form.phone = inst.phone ?? ''
+      form.email = inst.email ?? ''
+      Object.keys(errors).forEach((k) => (errors[k] = ''))
+    }
+  },
+  { immediate: true }
+)
+
 watch(isOpen, (open) => {
-  if (!open) {
-    form.email = ''
-    form.password = ''
-    form.institution_name = ''
-    form.address = ''
-    form.contact_person = ''
-    form.phone = ''
-    form.institution_type = ''
-    Object.keys(errors).forEach((k) => (errors[k] = ''))
+  if (open && props.institution) {
+    form.institution_name = props.institution.institution_name ?? ''
+    form.institution_type = props.institution.institution_type ?? ''
+    form.address = props.institution.address ?? ''
+    form.contact_person = props.institution.contact_person ?? ''
+    form.phone = props.institution.phone ?? ''
+    form.email = props.institution.email ?? ''
   }
 })
 
@@ -120,19 +128,10 @@ function close() {
 }
 
 function validate(): boolean {
-  const required: (keyof CreateInstitutionPayload)[] = [
-    'email',
-    'institution_name',
-    'address',
-    'contact_person',
-    'phone',
-    'institution_type',
-  ]
+  const required = ['institution_name', 'institution_type', 'address', 'contact_person', 'phone', 'email'] as const
   let valid = true
   required.forEach((key) => {
-    const val = form[key]
-    if (key === 'password') return
-    if (!String(val ?? '').trim()) {
+    if (!String(form[key] ?? '').trim()) {
       errors[key] = 'Обязательное поле'
       valid = false
     } else {
@@ -143,23 +142,20 @@ function validate(): boolean {
 }
 
 async function submit() {
+  if (!props.institution) return
   if (!validate()) return
   loading.value = true
   Object.keys(errors).forEach((k) => (errors[k] = ''))
   try {
-    const payload: Record<string, string> = {
-      email: form.email.trim(),
+    await api.patch(`/institutions/${props.institution.id}/`, {
       institution_name: form.institution_name.trim(),
+      institution_type: form.institution_type.trim(),
       address: form.address.trim(),
       contact_person: form.contact_person.trim(),
       phone: form.phone.trim(),
-      institution_type: form.institution_type.trim(),
-    }
-    if (form.password?.trim()) {
-      payload.password = form.password
-    }
-    await api.post('/institutions/', payload)
-    emit('created')
+      email: form.email.trim(),
+    })
+    emit('saved')
     close()
   } catch (err: unknown) {
     const ax = err as { response?: { data?: Record<string, string[]> } }
@@ -169,7 +165,7 @@ async function submit() {
         errors[key] = Array.isArray(messages) ? messages.join(' ') : String(messages)
       })
     } else {
-      errors.institution_name = 'Не удалось создать организацию.'
+      errors.institution_name = 'Не удалось сохранить.'
     }
   } finally {
     loading.value = false

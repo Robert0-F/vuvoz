@@ -2,23 +2,37 @@ import secrets
 from datetime import datetime
 from decimal import Decimal
 
-from django.db.models import Case, Count, Sum, When
+from django.db.models import Avg, Case, Count, DurationField, ExpressionWrapper, F, Q, Sum, When
 from django.utils import timezone as tz
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import CollectionRequest, CompanyProfile, InstitutionProfile
+from .models import (
+    CollectionRequest,
+    CompanyProfile,
+    InAppNotification,
+    InstitutionProfile,
+    NewsArticle,
+    PriceList,
+    RequestMaterialLine,
+)
 from .permissions import (
     CanViewRequest,
+    IsAdministrator,
+    IsCompanyOrAdmin,
     IsCompanyUser,
     IsInstitutionAccess,
     IsInstitutionUser,
     IsOwnCompany,
 )
 from .serializers import (
+    CalculatePreviewSerializer,
+    CollectionRequestCompleteSerializer,
+    CollectionRequestCreateSerializer,
+    CompanyCreateSerializer,
     CompanyProfileSerializer,
     CompanyStatsSerializer,
     CollectionRequestSerializer,
@@ -26,25 +40,40 @@ from .serializers import (
     InstitutionProfileSerializer,
     InstitutionStatsSerializer,
     InstitutionUpdateSerializer,
+    NewsArticleSerializer,
+    NotificationSerializer,
+    PriceListSerializer,
     UserBasicSerializer,
 )
 
 
 class CompanyProfileViewSet(
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     """
-    List, retrieve, update own company profile only.
-    No create/delete via API.
+    List, retrieve, update. Company: own profile only. Admin: all companies, create, delete.
     """
-    permission_classes = [IsAuthenticated, IsCompanyUser, IsOwnCompany]
     serializer_class = CompanyProfileSerializer
 
+    def get_permissions(self):
+        if self.action in ('create', 'destroy'):
+            return [IsAuthenticated(), IsAdministrator()]
+        return [IsAuthenticated(), IsOwnCompany()]
+
     def get_queryset(self):
+        if getattr(self.request.user, 'role', None) == 'admin':
+            return CompanyProfile.objects.all()
         return CompanyProfile.objects.filter(user=self.request.user)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CompanyCreateSerializer
+        return CompanyProfileSerializer
 
 
 class InstitutionViewSet(viewsets.ModelViewSet):
@@ -58,11 +87,23 @@ class InstitutionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if getattr(user, 'role', None) == 'company' and hasattr(user, 'company_profile'):
-            return InstitutionProfile.objects.filter(parent_company=user.company_profile)
-        if getattr(user, 'role', None) == 'institution' and hasattr(user, 'institution_profile'):
-            return InstitutionProfile.objects.filter(user=user)
-        return InstitutionProfile.objects.none()
+        if getattr(user, 'role', None) == 'admin':
+            qs = InstitutionProfile.objects.all()
+        elif getattr(user, 'role', None) == 'company' and hasattr(user, 'company_profile'):
+            qs = InstitutionProfile.objects.filter(parent_company=user.company_profile)
+        elif getattr(user, 'role', None) == 'institution' and hasattr(user, 'institution_profile'):
+            qs = InstitutionProfile.objects.filter(user=user)
+        else:
+            return InstitutionProfile.objects.none()
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(institution_name__icontains=search)
+                | Q(institution_type__icontains=search)
+                | Q(contact_person__icontains=search)
+                | Q(email__icontains=search)
+            )
+        return qs.select_related('parent_company')
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -74,10 +115,15 @@ class InstitutionViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         perms = [IsAuthenticated, IsInstitutionAccess]
         if self.action in ('create', 'destroy'):
-            perms.append(IsCompanyUser)
+            perms.append(IsCompanyOrAdmin)
         if self.action == 'reset_password':
             perms.append(IsCompanyUser)
         return [p() for p in perms]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['is_admin'] = getattr(self.request.user, 'role', None) == 'admin'
+        return context
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -118,7 +164,7 @@ class InstitutionViewSet(viewsets.ModelViewSet):
 
 class CollectionRequestViewSet(viewsets.ModelViewSet):
     """
-    Create: institution users only; institution auto-set from user.institution_profile.
+    Create: institution users only; uses material_lines (multiple material types + weights).
     List/Retrieve: filtered by user role (company sees received, institution sees own).
     Update: only company users can update (e.g. status).
     """
@@ -127,11 +173,42 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if getattr(user, 'role', None) == 'company' and hasattr(user, 'company_profile'):
-            return CollectionRequest.objects.filter(receiving_company=user.company_profile)
-        if getattr(user, 'role', None) == 'institution' and hasattr(user, 'institution_profile'):
-            return CollectionRequest.objects.filter(institution=user.institution_profile)
-        return CollectionRequest.objects.none()
+        if getattr(user, 'role', None) == 'admin':
+            qs = CollectionRequest.objects.all()
+        elif getattr(user, 'role', None) == 'company' and hasattr(user, 'company_profile'):
+            qs = CollectionRequest.objects.filter(receiving_company=user.company_profile)
+        elif getattr(user, 'role', None) == 'institution' and hasattr(user, 'institution_profile'):
+            qs = CollectionRequest.objects.filter(institution=user.institution_profile)
+        else:
+            return CollectionRequest.objects.none()
+        qs = qs.select_related('institution', 'receiving_company')
+        status = self.request.query_params.get('status', '').strip()
+        if status:
+            qs = qs.filter(status=status)
+        start_date = _parse_date_param(self.request.query_params.get('start_date'))
+        end_date = _parse_date_param(self.request.query_params.get('end_date'))
+        qs = _apply_date_filter(qs, start_date, end_date)
+        itype = self.request.query_params.get('institution_type', '').strip()
+        if itype:
+            qs = qs.filter(institution__institution_type__icontains=itype)
+        min_kg = self.request.query_params.get('min_weight')
+        if min_kg is not None:
+            try:
+                qs = qs.filter(paper_weight_kg__gte=Decimal(str(min_kg)))
+            except Exception:
+                pass
+        max_kg = self.request.query_params.get('max_weight')
+        if max_kg is not None:
+            try:
+                qs = qs.filter(paper_weight_kg__lte=Decimal(str(max_kg)))
+            except Exception:
+                pass
+        return qs
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CollectionRequestCreateSerializer
+        return CollectionRequestSerializer
 
     def get_permissions(self):
         perms = [IsAuthenticated]
@@ -139,12 +216,136 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
             perms.append(IsInstitutionUser)
         else:
             perms.append(CanViewRequest)
-        if self.action in ('update', 'partial_update'):
+        if self.action in ('update', 'partial_update', 'complete'):
             perms.append(IsCompanyUser)
         return [p() for p in perms]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        institution = request.user.institution_profile
+        validated = serializer.validated_data
+        material_lines = validated['material_lines']
+        total_kg = sum(line['amount_kg'] for line in material_lines)
+        req = CollectionRequest.objects.create(
+            institution=institution,
+            paper_weight_kg=total_kg,
+            desired_date=validated.get('desired_date'),
+            comment=validated.get('comment') or '',
+        )
+        for line in material_lines:
+            RequestMaterialLine.objects.create(
+                collection_request=req,
+                material_type=line['material_type'],
+                amount_kg=line['amount_kg'],
+            )
+        req.save()
+        return Response(
+            CollectionRequestSerializer(req, context={'request': request}).data,
+            status=201,
+        )
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, pk=None):
+        """Mark request as completed (company only). Sets actual_amount, actual_collection_date, internal_notes, actual_value."""
+        req = self.get_object()
+        if req.status == CollectionRequest.Status.COMPLETED:
+            return Response(
+                {'detail': 'Заявка уже завершена.'},
+                status=400,
+            )
+        ser = CollectionRequestCompleteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        req.actual_amount = ser.validated_data['actual_amount']
+        req.actual_collection_date = ser.validated_data.get('actual_collection_date')
+        req.internal_notes = (ser.validated_data.get('internal_notes') or '').strip()
+        req.status = CollectionRequest.Status.COMPLETED
+        req.save()
+        return Response(CollectionRequestSerializer(req, context={'request': request}).data)
+
+    @action(detail=False, methods=['post'], url_path='calculate')
+    def calculate(self, request):
+        """Preview estimated value. Single: material_type+amount_kg. Multi: material_lines."""
+        ser = CalculatePreviewSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        if data.get('material_lines'):
+            total_value = sum(
+                line['amount_kg'] * PriceList.get_current_price(line['material_type'])
+                for line in data['material_lines']
+            )
+            total_kg = sum(line['amount_kg'] for line in data['material_lines'])
+            return Response({
+                'material_lines': data['material_lines'],
+                'total_kg': str(total_kg),
+                'estimated_value': str(total_value),
+            })
+        material_type = data['material_type']
+        amount_kg = data['amount_kg']
+        price = PriceList.get_current_price(material_type)
+        value = amount_kg * price
+        return Response({
+            'material_type': material_type,
+            'amount_kg': str(amount_kg),
+            'price_per_kg': str(price),
+            'estimated_value': str(value),
+        })
+
+
+class NewsArticleViewSet(viewsets.ModelViewSet):
+    """News articles. Public: GET list/retrieve (published only). Admin: full CRUD."""
+
+    serializer_class = NewsArticleSerializer
+
+    def get_queryset(self):
+        qs = NewsArticle.objects.all().select_related('author')
+        if self.action in ('list', 'retrieve') and not (
+            self.request.user.is_authenticated
+            and getattr(self.request.user, 'role', None) == 'admin'
+        ):
+            qs = qs.filter(is_published=True)
+        return qs.order_by('-created_at')
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [AllowAny()]
+        return [IsAuthenticated(), IsAdministrator()]
+
     def perform_create(self, serializer):
-        serializer.save(institution=self.request.user.institution_profile)
+        serializer.save(author=self.request.user)
+
+
+class PriceListViewSet(viewsets.ModelViewSet):
+    """CRUD for PriceList. Admin only. GET /current/ — current prices (any authenticated)."""
+    serializer_class = PriceListSerializer
+    queryset = PriceList.objects.all()
+    filterset_fields = ['material_type', 'is_active']
+
+    def get_permissions(self):
+        if self.action == 'current':
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdministrator()]
+
+    @action(detail=False, methods=['get'], url_path='current')
+    def current(self, request):
+        from django.utils import timezone
+        today = timezone.now().date()
+        qs = PriceList.objects.filter(
+            is_active=True,
+            valid_from__lte=today,
+        ).filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today))
+        seen = set()
+        rows = []
+        for p in qs.order_by('material_type', '-valid_from'):
+            if p.material_type in seen:
+                continue
+            seen.add(p.material_type)
+            rows.append({
+                'material_type': p.material_type,
+                'material_type_display': p.get_material_type_display(),
+                'price_per_kg': str(p.price_per_kg),
+            })
+        return Response(rows)
 
 
 class CurrentUserView(APIView):
@@ -230,9 +431,47 @@ class CompanyStatsView(APIView):
         total_weight_kg = total_weight_result['total'] or Decimal('0.00')
 
         # recent_requests: last 10 with details (no date filter for "recent")
-        recent_requests = (
-            requests_base.order_by('-created_at')[:10]
+        recent_requests = requests_base.order_by('-created_at')[:10]
+
+        # monthly_comparison: current month vs previous month
+        now = tz.now()
+        cur_month = requests_base.filter(
+            created_at__year=now.year, created_at__month=now.month
         )
+        prev_month_start = (now.replace(day=1) - __import__('datetime').timedelta(days=1)).replace(day=1)
+        prev_month = requests_base.filter(
+            created_at__year=prev_month_start.year,
+            created_at__month=prev_month_start.month,
+        )
+        cur_weight = cur_month.filter(status=CollectionRequest.Status.COMPLETED).aggregate(
+            t=Sum('paper_weight_kg')
+        )['t'] or Decimal('0')
+        prev_weight = prev_month.filter(status=CollectionRequest.Status.COMPLETED).aggregate(
+            t=Sum('paper_weight_kg')
+        )['t'] or Decimal('0')
+        monthly_comparison = {
+            'current_month_requests': cur_month.count(),
+            'previous_month_requests': prev_month.count(),
+            'current_month_weight_kg': float(cur_weight),
+            'previous_month_weight_kg': float(prev_weight),
+        }
+
+        # weight_by_institution_type
+        qs = requests_base.filter(status=CollectionRequest.Status.COMPLETED).values(
+            'institution__institution_type'
+        ).annotate(weight=Sum('paper_weight_kg'))
+        weight_by_institution_type = {item['institution__institution_type'] or 'other': float(item['weight']) for item in qs}
+
+        # avg_processing_time_hours: from created_at to completed_at for completed
+        completed = requests_base.filter(
+            status=CollectionRequest.Status.COMPLETED,
+            completed_at__isnull=False,
+        )
+        result = completed.annotate(
+            delta=ExpressionWrapper(F('completed_at') - F('created_at'), output_field=DurationField())
+        ).aggregate(avg=Avg('delta'))
+        delta = result.get('avg')
+        avg_processing_time_hours = float(delta.total_seconds() / 3600.0) if delta else None
 
         data = {
             'total_institutions': total_institutions,
@@ -240,9 +479,37 @@ class CompanyStatsView(APIView):
             'requests_by_status': requests_by_status,
             'total_weight_kg': total_weight_kg,
             'recent_requests': recent_requests,
+            'monthly_comparison': monthly_comparison,
+            'weight_by_institution_type': weight_by_institution_type,
+            'avg_processing_time_hours': avg_processing_time_hours,
         }
         serializer = CompanyStatsSerializer(instance=data)
         return Response(serializer.data)
+
+
+class NotificationViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """List and mark read current user's in-app notifications."""
+    permission_classes = [IsAuthenticated]
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        return InAppNotification.objects.filter(user=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='mark_read')
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.read = True
+        notification.save(update_fields=['read'])
+        return Response(NotificationSerializer(notification).data)
+
+    @action(detail=False, methods=['post'], url_path='mark_all_read')
+    def mark_all_read(self, request):
+        InAppNotification.objects.filter(user=request.user, read=False).update(read=True)
+        return Response({'status': 'ok'})
 
 
 class InstitutionStatsView(APIView):

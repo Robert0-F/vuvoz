@@ -6,8 +6,9 @@ Or: python manage.py runscript setup_dev_data (if django-extensions installed)
 Or from shell: exec(open('setup_dev_data.py').read())
 
 Creates:
+- 1 administrator (admin@test.com / test123)
 - 1 company user (company@test.com / test123)
-- 3 institutions with users
+- 3 institutions linked to that company
 - 10 sample collection requests
 """
 import os
@@ -22,10 +23,33 @@ from collection.models import CompanyProfile, InstitutionProfile, CollectionRequ
 
 User = get_user_model()
 
+ADMIN_EMAIL = 'admin@test.com'
+ADMIN_PASSWORD = 'test123'
 COMPANY_EMAIL = 'company@test.com'
 COMPANY_PASSWORD = 'test123'
 
 def run():
+    # Administrator
+    admin_user, admin_created = User.objects.get_or_create(
+        username=ADMIN_EMAIL,
+        defaults={
+            'email': ADMIN_EMAIL,
+            'role': User.Role.ADMIN,
+            'is_active': True,
+        },
+    )
+    if admin_created:
+        admin_user.set_password(ADMIN_PASSWORD)
+        admin_user.save()
+        print(f"Created administrator: {ADMIN_EMAIL}")
+    else:
+        if admin_user.role != User.Role.ADMIN:
+            admin_user.role = User.Role.ADMIN
+            admin_user.save()
+            print(f"Updated user to administrator: {ADMIN_EMAIL}")
+        else:
+            print(f"Administrator exists: {ADMIN_EMAIL}")
+
     # Company
     company_user, created = User.objects.get_or_create(
         username=COMPANY_EMAIL,
@@ -90,7 +114,18 @@ def run():
         )
         if i_created:
             print(f"Created institution: {data['name']}")
+        # Ensure company link is set (verify institution -> company)
+        if inst.parent_company_id != profile.id:
+            inst.parent_company = profile
+            inst.save()
+            print(f"Linked institution {inst.institution_name} to company {profile.company_name}")
         institutions.append(inst)
+
+    # Verify company link: each created institution must belong to the test company
+    for inst in institutions:
+        assert inst.parent_company_id == profile.id, f"Institution {inst.institution_name} not linked to company"
+    linked_count = InstitutionProfile.objects.filter(parent_company=profile).count()
+    print(f"Verified company link: {len(institutions)} institutions in this run linked to {profile.company_name} (total linked to company: {linked_count})")
 
     # Sample requests (create only if none exist)
     existing = CollectionRequest.objects.filter(receiving_company=profile).count()
@@ -111,9 +146,10 @@ def run():
             )
         print("Created 10 sample collection requests.")
 
-    print("\nDone. Login:")
-    print(f"  Company:     {COMPANY_EMAIL} / {COMPANY_PASSWORD}")
-    print(f"  Institution: school1@test.com / test123 (or school2@test.com, office@test.com)")
+    print("\nDone. Test data logins:")
+    print(f"  Administrator: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
+    print(f"  Company:       {COMPANY_EMAIL} / {COMPANY_PASSWORD}")
+    print(f"  Institution:   school1@test.com / test123 (or school2@test.com, office@test.com)")
 
 
 if __name__ == '__main__':

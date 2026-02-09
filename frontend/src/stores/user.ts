@@ -13,6 +13,7 @@ export const useUserStore = defineStore('user', () => {
 
   const user = computed(() => currentUser.value)
   const role = computed(() => currentUser.value?.role ?? null)
+  const isAdmin = computed(() => currentUser.value?.role === 'admin')
   const isCompany = computed(() => currentUser.value?.role === 'company')
   const isInstitution = computed(() => currentUser.value?.role === 'institution')
   const profile = computed(() => currentUser.value?.profile ?? null)
@@ -40,6 +41,7 @@ export const useUserStore = defineStore('user', () => {
     currentUser,
     user,
     role,
+    isAdmin,
     isCompany,
     isInstitution,
     profile,

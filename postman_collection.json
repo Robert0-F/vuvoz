@@ -4,116 +4,45 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:8000/api" },
-    { "key": "access_token", "value": "" }
+    {"key": "base_url", "value": "http://localhost:8000/api"},
+    {"key": "access_token", "value": ""}
   ],
   "item": [
     {
       "name": "Auth",
       "item": [
-        {
-          "name": "Obtain Token",
-          "request": {
-            "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"username\": \"company@test.com\",\n  \"password\": \"test123\"\n}"
-            },
-            "url": "{{base_url}}/token/"
-          }
-        },
-        {
-          "name": "Refresh Token",
-          "request": {
-            "method": "POST",
-            "header": [ { "key": "Content-Type", "value": "application/json" } ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refresh\": \"<refresh_token>\"\n}"
-            },
-            "url": "{{base_url}}/token/refresh/"
-          }
-        }
+        {"name": "Obtain Token", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"username\": \"company@test.com\",\n  \"password\": \"test123\"\n}"}, "url": "{{base_url}}/token/"}},
+        {"name": "Refresh Token", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"refresh\": \"<refresh_token>\"\n}"}, "url": "{{base_url}}/token/refresh/"}}
       ]
     },
     {
       "name": "Me",
       "item": [
-        {
-          "name": "Current User",
-          "request": {
-            "method": "GET",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" } ],
-            "url": "{{base_url}}/me/"
-          }
-        }
+        {"name": "Current User", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}], "url": "{{base_url}}/me/"}}
+      ]
+    },
+    {
+      "name": "News",
+      "item": [
+        {"name": "List News (Public)", "request": {"method": "GET", "url": "{{base_url}}/news/"}},
+        {"name": "Get News by ID (Public)", "request": {"method": "GET", "url": "{{base_url}}/news/1/"}},
+        {"name": "Create News (Admin)", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"title\": \"Новая статья\",\n  \"content\": \"Текст статьи\",\n  \"is_published\": true\n}"}, "url": "{{base_url}}/news/"}}
       ]
     },
     {
       "name": "Company",
       "item": [
-        {
-          "name": "Company Stats",
-          "request": {
-            "method": "GET",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" } ],
-            "url": "{{base_url}}/stats/company/"
-          }
-        },
-        {
-          "name": "List Institutions",
-          "request": {
-            "method": "GET",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" } ],
-            "url": "{{base_url}}/institutions/"
-          }
-        },
-        {
-          "name": "Create Institution",
-          "request": {
-            "method": "POST",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" }, { "key": "Content-Type", "value": "application/json" } ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"newinst@test.com\",\n  \"password\": \"optional\",\n  \"institution_name\": \"New School\",\n  \"address\": \"1 Main St\",\n  \"contact_person\": \"John\",\n  \"phone\": \"+111\",\n  \"institution_type\": \"school\"\n}"
-            },
-            "url": "{{base_url}}/institutions/"
-          }
-        }
+        {"name": "Company Stats", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}], "url": "{{base_url}}/stats/company/"}},
+        {"name": "List Institutions", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}], "url": "{{base_url}}/institutions/"}},
+        {"name": "Create Institution", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"email\": \"newinst@test.com\",\n  \"password\": \"optional\",\n  \"institution_name\": \"New School\",\n  \"address\": \"1 Main St\",\n  \"contact_person\": \"John\",\n  \"phone\": \"+7 999 123 45 67\",\n  \"institution_type\": \"school\"\n}"}, "url": "{{base_url}}/institutions/"}}
       ]
     },
     {
       "name": "Institution",
       "item": [
-        {
-          "name": "Institution Stats",
-          "request": {
-            "method": "GET",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" } ],
-            "url": "{{base_url}}/stats/institution/"
-          }
-        },
-        {
-          "name": "Create Request",
-          "request": {
-            "method": "POST",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" }, { "key": "Content-Type", "value": "application/json" } ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"paper_weight_kg\": \"50\",\n  \"desired_date\": \"2025-02-15\",\n  \"comment\": \"Please collect\"\n}"
-            },
-            "url": "{{base_url}}/collection-requests/"
-          }
-        },
-        {
-          "name": "List My Requests",
-          "request": {
-            "method": "GET",
-            "header": [ { "key": "Authorization", "value": "Bearer {{access_token}}" } ],
-            "url": "{{base_url}}/collection-requests/"
-          }
-        }
+        {"name": "Institution Stats", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}], "url": "{{base_url}}/stats/institution/"}},
+        {"name": "Create Request", "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"material_lines\": [\n    {\"material_type\": \"paper\", \"amount_kg\": \"50\"},\n    {\"material_type\": \"cardboard\", \"amount_kg\": \"30\"}\n  ],\n  \"desired_date\": \"2025-02-15\",\n  \"comment\": \"Please collect\"\n}"}, "url": "{{base_url}}/collection-requests/"}},
+        {"name": "List My Requests", "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}], "url": "{{base_url}}/collection-requests/"}}
       ]
     }
   ]

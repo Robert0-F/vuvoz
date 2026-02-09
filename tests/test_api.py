@@ -72,3 +72,87 @@ class TestInstitutionStats:
         assert 'requests_by_status' in resp.data
         assert 'total_weight_all_time' in resp.data
         assert 'total_weight_this_month' in resp.data
+
+
+@pytest.mark.django_db
+class TestAdminRole:
+    """Verify admin user has correct role for permission checks."""
+
+    def test_admin_me_returns_role(self, admin_client):
+        url = reverse('current-user')
+        resp = admin_client.get(url)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data.get('role') == 'admin'
+
+    def test_admin_can_create_price(self, admin_client):
+        """IsAdministrator allows admin to create PriceList (admin-only resource)."""
+        url = reverse('pricelist-list')
+        from django.utils import timezone
+        data = {
+            'material_type': 'paper',
+            'price_per_kg': '5.00',
+            'valid_from': timezone.now().date().isoformat(),
+        }
+        resp = admin_client.post(url, data, format='json')
+        assert resp.status_code == status.HTTP_201_CREATED
+
+
+@pytest.mark.django_db
+class TestNewsAPI:
+    """News API: public GET list/retrieve; admin-only POST/PUT/DELETE."""
+
+    def test_news_list_public(self, api_client):
+        """GET /api/news/ - no auth required, returns published only."""
+        from collection.models import NewsArticle
+        NewsArticle.objects.create(title='Pub', content='Content', is_published=True)
+        NewsArticle.objects.create(title='Unpub', content='Hidden', is_published=False)
+        url = reverse('news-list')
+        resp = api_client.get(url)
+        assert resp.status_code == status.HTTP_200_OK
+        results = resp.data.get('results', resp.data) if isinstance(resp.data, dict) else resp.data
+        assert len(results) == 1
+        assert results[0]['title'] == 'Pub'
+
+    def test_news_retrieve_public(self, api_client):
+        """GET /api/news/{id}/ - no auth required for published article."""
+        from collection.models import NewsArticle
+        art = NewsArticle.objects.create(title='Test', content='Body', is_published=True)
+        url = reverse('news-detail', args=[art.pk])
+        resp = api_client.get(url)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['title'] == 'Test'
+        assert resp.data['content'] == 'Body'
+
+    def test_news_retrieve_unpublished_404_for_anon(self, api_client):
+        """Unpublished article returns 404 for anonymous users."""
+        from collection.models import NewsArticle
+        art = NewsArticle.objects.create(title='Secret', content='Hidden', is_published=False)
+        url = reverse('news-detail', args=[art.pk])
+        resp = api_client.get(url)
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_news_create_admin_only(self, admin_client, company_client):
+        """POST /api/news/ - only admin can create."""
+        from collection.models import NewsArticle
+        from rest_framework.test import APIClient
+        url = reverse('news-list')
+        data = {'title': 'New Article', 'content': 'Full content here', 'is_published': True}
+        anon = APIClient()
+        resp = anon.post(url, data, format='json')
+        assert resp.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+        resp = company_client.post(url, data, format='json')
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        resp = admin_client.post(url, data, format='json')
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert NewsArticle.objects.filter(title='New Article').exists()
+
+    def test_news_delete_admin_only(self, admin_client, company_client):
+        """DELETE /api/news/{id}/ - only admin can delete."""
+        from collection.models import NewsArticle
+        art = NewsArticle.objects.create(title='To Delete', content='x', is_published=True)
+        url = reverse('news-detail', args=[art.pk])
+        resp = company_client.delete(url)
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        resp = admin_client.delete(url)
+        assert resp.status_code == status.HTTP_204_NO_CONTENT
+        assert not NewsArticle.objects.filter(pk=art.pk).exists()

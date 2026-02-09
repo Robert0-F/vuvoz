@@ -41,7 +41,7 @@
               size="large"
               :loading="loading"
             >
-              Sign in
+              Войти
             </v-btn>
           </v-form>
         </v-card>
@@ -85,7 +85,9 @@ async function onSubmit() {
     await authStore.login(username.value, password.value)
     await userStore.fetchMe()
     const redirect = (route.query.redirect as string) || undefined
-    if (userStore.role === 'company') {
+    if (userStore.role === 'admin') {
+      router.push(redirect || { name: 'AdminDashboard' })
+    } else if (userStore.role === 'company') {
       router.push(redirect || { name: 'CompanyDashboard' })
     } else if (userStore.role === 'institution') {
       router.push(redirect || { name: 'InstitutionDashboard' })

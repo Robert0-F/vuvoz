@@ -6,6 +6,18 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/',
+      name: 'Home',
+      component: () => import('@/views/PublicHomePage.vue'),
+      meta: { public: true },
+    },
+    {
+      path: '/news/:id',
+      name: 'NewsDetail',
+      component: () => import('@/views/NewsDetailPage.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/login',
       name: 'Login',
       component: () => import('@/views/LoginPage.vue'),
@@ -24,12 +36,14 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'institution' },
     },
     {
-      path: '/',
-      redirect: () => '/login',
+      path: '/admin',
+      name: 'AdminDashboard',
+      component: () => import('@/views/AdminDashboard.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
     },
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/login',
+      redirect: '/',
     },
   ],
 })
@@ -38,11 +52,17 @@ router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
   const userStore = useUserStore()
 
+  if (to.meta.public) {
+    next()
+    return
+  }
+
   if (to.meta.guest) {
     if (authStore.isAuthenticated) {
       await userStore.fetchMe().catch(() => authStore.logout())
       const role = userStore.role
-      if (role === 'company') next({ name: 'CompanyDashboard' })
+      if (role === 'admin') next({ name: 'AdminDashboard' })
+      else if (role === 'company') next({ name: 'CompanyDashboard' })
       else if (role === 'institution') next({ name: 'InstitutionDashboard' })
       else next()
     } else {
@@ -67,7 +87,8 @@ router.beforeEach(async (to, _from, next) => {
     }
     const requiredRole = to.meta.role as string | undefined
     if (requiredRole && userStore.role !== requiredRole) {
-      if (userStore.role === 'company') next({ name: 'CompanyDashboard' })
+      if (userStore.role === 'admin') next({ name: 'AdminDashboard' })
+      else if (userStore.role === 'company') next({ name: 'CompanyDashboard' })
       else if (userStore.role === 'institution') next({ name: 'InstitutionDashboard' })
       else next({ name: 'Login' })
       return
