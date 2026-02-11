@@ -12,6 +12,7 @@ from .views import (
     NewsArticleViewSet,
     NotificationViewSet,
     PriceListViewSet,
+    WeightLimitsView,
 )
 
 router = DefaultRouter()
@@ -27,6 +28,7 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('stats/company/', CompanyStatsView.as_view(), name='stats-company'),
     path('stats/institution/', InstitutionStatsView.as_view(), name='stats-institution'),
+    path('weight-limits/', WeightLimitsView.as_view(), name='weight-limits'),
     path('', include(router.urls)),
     path('me/', CurrentUserView.as_view(), name='current-user'),
 ]

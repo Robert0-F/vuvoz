@@ -38,6 +38,14 @@ class UserBasicSerializer(serializers.ModelSerializer):
 class CompanyProfileSerializer(serializers.ModelSerializer):
     """Serializer for CompanyProfile (list, retrieve, update)."""
 
+    password = serializers.CharField(
+        max_length=128,
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        style={'input_type': 'password'},
+    )
+
     class Meta:
         model = CompanyProfile
         fields = [
@@ -58,8 +66,21 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
             'logo',
             'description',
             'created_at',
+            'password',
         ]
         read_only_fields = ['id', 'created_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data.pop('password', None)
+        return data
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        if password and password.strip():
+            instance.user.set_password(password.strip())
+            instance.user.save(update_fields=['password'])
+        return super().update(instance, validated_data)
 
     def validate_inn(self, value):
         return validate_inn(value or '')
@@ -69,6 +90,9 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
 
     def validate_ogrn(self, value):
         return validate_ogrn(value or '')
+
+    def validate_contact_phone(self, value):
+        return validate_phone_ru(value or '')
 
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -121,6 +145,9 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
     def validate_ogrn(self, value):
         return validate_ogrn(value or '')
 
+    def validate_contact_phone(self, value):
+        return validate_phone_ru(value or '')
+
     @transaction.atomic
     def create(self, validated_data):
         email = validated_data.pop('email').strip().lower()
@@ -166,6 +193,7 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
             'preferred_hours',
             'access_details',
             'container_location',
+            'company_notes',
             'created_at',
         ]
         read_only_fields = ['id', 'parent_company', 'created_at']
@@ -309,6 +337,7 @@ class InstitutionUpdateSerializer(serializers.ModelSerializer):
             'preferred_hours',
             'access_details',
             'container_location',
+            'company_notes',
             'password',
         ]
 
@@ -373,9 +402,15 @@ class CollectionRequestCreateSerializer(serializers.Serializer):
     comment = serializers.CharField(required=False, allow_blank=True)
 
     def validate_material_lines(self, value):
+        from .models import RequestWeightLimit
         total = sum(line['amount_kg'] for line in value)
         if total <= 0:
             raise serializers.ValidationError('Суммарный вес должен быть больше 0.')
+        min_kg, max_kg = RequestWeightLimit.get_limits()
+        if total < min_kg:
+            raise serializers.ValidationError(f'Суммарный вес не менее {min_kg} кг.')
+        if total > max_kg:
+            raise serializers.ValidationError(f'Суммарный вес не более {max_kg} кг.')
         return value
 
 

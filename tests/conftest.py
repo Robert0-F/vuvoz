@@ -5,9 +5,25 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from collection.models import CompanyProfile, InstitutionProfile, CollectionRequest
+from decimal import Decimal
+from collection.models import (
+    CompanyProfile,
+    InstitutionProfile,
+    CollectionRequest,
+    RequestWeightLimit,
+)
 
 User = get_user_model()
+
+
+@pytest.fixture(autouse=True)
+def weight_limits(db):
+    """Ensure default weight limits exist for all tests."""
+    limit, _ = RequestWeightLimit.objects.get_or_create(
+        pk=1,
+        defaults={'min_kg': Decimal('100'), 'max_kg': Decimal('100000')},
+    )
+    return limit
 
 
 @pytest.fixture

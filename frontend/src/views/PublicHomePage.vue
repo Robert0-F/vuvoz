@@ -1,7 +1,7 @@
 <template>
   <div>
-    <v-app-bar color="primary" density="compact" elevation="2">
-      <v-app-bar-title class="text-h6 font-weight-bold">
+    <v-app-bar color="primary" density="compact" elevation="2" class="px-4 py-2">
+      <v-app-bar-title class="text-h6 font-weight-bold pl-2">
         Вывоз макулатуры
       </v-app-bar-title>
       <v-spacer />

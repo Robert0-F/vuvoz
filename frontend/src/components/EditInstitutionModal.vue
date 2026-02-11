@@ -1,61 +1,65 @@
 <template>
   <v-dialog v-model="isOpen" max-width="600" persistent @click:outside="close">
     <v-card>
-      <v-card-title>Редактирование организации</v-card-title>
+      <v-card-title>{{ companyEditOnly ? 'Дополнительная информация (адрес, контакты, заметка)' : 'Редактирование организации' }}</v-card-title>
       <v-divider />
       <v-card-text>
         <v-form ref="formRef">
-          <v-text-field
-            v-model="form.institution_name"
-            label="Название учреждения"
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.institution_name"
-            class="mb-2"
-          />
-          <v-text-field
-            v-model="form.institution_type"
-            label="Тип организации"
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.institution_type"
-            class="mb-2"
-          />
-          <v-textarea
-            v-model="form.address"
-            label="Адрес"
-            variant="outlined"
-            density="comfortable"
-            rows="2"
-            :error-messages="errors.address"
-            class="mb-2"
-          />
-          <v-text-field
-            v-model="form.contact_person"
-            label="Контактное лицо"
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.contact_person"
-            class="mb-2"
-          />
-          <v-text-field
-            v-model="form.phone"
-            label="Номер телефона *"
-            hint="Формат: +7 XXX XXX XX XX"
-            persistent-hint
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.phone"
-            class="mb-2"
-          />
-          <v-text-field
-            v-model="form.email"
-            label="Почта (для входа)"
-            type="email"
-            variant="outlined"
-            density="comfortable"
-            :error-messages="errors.email"
-          />
+          <template v-if="companyEditOnly">
+            <p class="text-body-2 text-medium-emphasis mb-2">{{ form.institution_name }} ({{ form.institution_type }})</p>
+            <v-textarea
+              v-model="form.address"
+              label="Адрес *"
+              variant="outlined"
+              density="comfortable"
+              rows="2"
+              :error-messages="errors.address"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.contact_person"
+              label="Контактное лицо *"
+              variant="outlined"
+              density="comfortable"
+              :error-messages="errors.contact_person"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.phone"
+              label="Номер телефона *"
+              hint="Формат: 7 XXX XXX XX XX или +7 XXX XXX XX XX"
+              persistent-hint
+              variant="outlined"
+              density="comfortable"
+              :error-messages="errors.phone"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.email"
+              label="Почта (логин для входа) *"
+              type="email"
+              variant="outlined"
+              density="comfortable"
+              :error-messages="errors.email"
+              class="mb-2"
+            />
+            <v-textarea
+              v-model="form.company_notes"
+              label="Заметка компании (новый комментарий)"
+              variant="outlined"
+              rows="2"
+              placeholder="Дополнительная заметка об организации"
+              :error-messages="errors.company_notes"
+            />
+          </template>
+          <template v-else>
+            <v-text-field v-model="form.institution_name" label="Название учреждения" variant="outlined" density="comfortable" :error-messages="errors.institution_name" class="mb-2" />
+            <v-text-field v-model="form.institution_type" label="Тип организации" variant="outlined" density="comfortable" :error-messages="errors.institution_type" class="mb-2" />
+            <v-textarea v-model="form.address" label="Адрес" variant="outlined" density="comfortable" rows="2" :error-messages="errors.address" class="mb-2" />
+            <v-text-field v-model="form.contact_person" label="Контактное лицо" variant="outlined" density="comfortable" :error-messages="errors.contact_person" class="mb-2" />
+            <v-text-field v-model="form.phone" label="Номер телефона *" hint="Формат: +7 XXX XXX XX XX" persistent-hint variant="outlined" density="comfortable" :error-messages="errors.phone" class="mb-2" />
+            <v-text-field v-model="form.email" label="Почта (для входа)" type="email" variant="outlined" density="comfortable" :error-messages="errors.email" />
+          </template>
         </v-form>
       </v-card-text>
       <v-divider />
@@ -75,9 +79,13 @@ import type { InstitutionProfile } from '@/types'
 
 const isOpen = defineModel<boolean>({ default: false })
 
-const props = defineProps<{
-  institution: InstitutionProfile | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    institution: InstitutionProfile | null
+    companyEditOnly?: boolean
+  }>(),
+  { companyEditOnly: false }
+)
 
 const emit = defineEmits<{
   saved: []
@@ -90,37 +98,33 @@ const form = reactive({
   contact_person: '',
   phone: '',
   email: '',
+  company_notes: '',
 })
 
 const errors = reactive<Record<string, string>>({})
 const loading = ref(false)
 const formRef = ref<{ validate: () => Promise<{ valid: boolean }> } | null>(null)
 
+function assignForm(inst: InstitutionProfile | null) {
+  if (!inst) return
+  form.institution_name = inst.institution_name ?? ''
+  form.institution_type = inst.institution_type ?? ''
+  form.address = inst.address ?? ''
+  form.contact_person = inst.contact_person ?? ''
+  form.phone = inst.phone ?? ''
+  form.email = inst.email ?? ''
+  form.company_notes = (inst as InstitutionProfile & { company_notes?: string }).company_notes ?? ''
+  Object.keys(errors).forEach((k) => (errors[k] = ''))
+}
+
 watch(
   () => props.institution,
-  (inst) => {
-    if (inst) {
-      form.institution_name = inst.institution_name ?? ''
-      form.institution_type = inst.institution_type ?? ''
-      form.address = inst.address ?? ''
-      form.contact_person = inst.contact_person ?? ''
-      form.phone = inst.phone ?? ''
-      form.email = inst.email ?? ''
-      Object.keys(errors).forEach((k) => (errors[k] = ''))
-    }
-  },
+  (inst) => assignForm(inst ?? null),
   { immediate: true }
 )
 
 watch(isOpen, (open) => {
-  if (open && props.institution) {
-    form.institution_name = props.institution.institution_name ?? ''
-    form.institution_type = props.institution.institution_type ?? ''
-    form.address = props.institution.address ?? ''
-    form.contact_person = props.institution.contact_person ?? ''
-    form.phone = props.institution.phone ?? ''
-    form.email = props.institution.email ?? ''
-  }
+  if (open && props.institution) assignForm(props.institution)
 })
 
 function close() {
@@ -128,7 +132,9 @@ function close() {
 }
 
 function validate(): boolean {
-  const required = ['institution_name', 'institution_type', 'address', 'contact_person', 'phone', 'email'] as const
+  const required = props.companyEditOnly
+    ? (['address', 'contact_person', 'phone', 'email'] as const)
+    : (['institution_name', 'institution_type', 'address', 'contact_person', 'phone', 'email'] as const)
   let valid = true
   required.forEach((key) => {
     if (!String(form[key] ?? '').trim()) {
@@ -147,14 +153,24 @@ async function submit() {
   loading.value = true
   Object.keys(errors).forEach((k) => (errors[k] = ''))
   try {
-    await api.patch(`/institutions/${props.institution.id}/`, {
-      institution_name: form.institution_name.trim(),
-      institution_type: form.institution_type.trim(),
-      address: form.address.trim(),
-      contact_person: form.contact_person.trim(),
-      phone: form.phone.trim(),
-      email: form.email.trim(),
-    })
+    if (props.companyEditOnly) {
+      await api.patch(`/institutions/${props.institution.id}/`, {
+        address: form.address.trim(),
+        contact_person: form.contact_person.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        company_notes: form.company_notes?.trim() ?? '',
+      })
+    } else {
+      await api.patch(`/institutions/${props.institution.id}/`, {
+        institution_name: form.institution_name.trim(),
+        institution_type: form.institution_type.trim(),
+        address: form.address.trim(),
+        contact_person: form.contact_person.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+      })
+    }
     emit('saved')
     close()
   } catch (err: unknown) {
@@ -165,7 +181,7 @@ async function submit() {
         errors[key] = Array.isArray(messages) ? messages.join(' ') : String(messages)
       })
     } else {
-      errors.institution_name = 'Не удалось сохранить.'
+      errors.address = 'Не удалось сохранить.'
     }
   } finally {
     loading.value = false

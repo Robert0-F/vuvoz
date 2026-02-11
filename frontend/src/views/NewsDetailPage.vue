@@ -1,8 +1,8 @@
 <template>
   <div>
-    <v-app-bar color="primary" density="compact" elevation="2">
+    <v-app-bar color="primary" density="compact" elevation="2" class="px-4 py-2">
       <v-btn variant="text" icon="mdi-arrow-left" @click="goBack" />
-      <v-app-bar-title>Новости</v-app-bar-title>
+      <v-app-bar-title class="pl-2">Новости</v-app-bar-title>
       <v-spacer />
       <v-btn variant="elevated" color="secondary" @click="goToLogin">
         Войти

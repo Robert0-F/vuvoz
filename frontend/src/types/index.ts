@@ -49,6 +49,7 @@ export interface InstitutionProfile {
   preferred_hours?: string
   access_details?: string
   container_location?: string
+  company_notes?: string
   created_at: string
 }
 
@@ -67,6 +68,7 @@ export interface CollectionRequest {
   urgency?: Urgency
   material_type?: MaterialType
   material_type_display?: string
+  material_lines?: { material_type: string; amount_kg: string }[]
   paper_weight_kg: string
   estimated_amount?: string
   actual_amount?: string | null

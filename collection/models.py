@@ -83,6 +83,10 @@ class InstitutionProfile(models.Model):
     preferred_hours = models.CharField(max_length=100, blank=True)
     access_details = models.TextField(blank=True)
     container_location = models.TextField(blank=True)
+    company_notes = models.TextField(
+        blank=True,
+        help_text='Заметка компании об организации (редактирует только компания)',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -338,3 +342,35 @@ class PriceList(models.Model):
         ).order_by('-valid_from')
         row = qs.first()
         return row.price_per_kg if row else Decimal('0')
+
+
+class RequestWeightLimit(models.Model):
+    """Global min/max weight (kg) for collection requests. Single row edited in admin."""
+
+    min_kg = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=100,
+        help_text='Минимальный суммарный вес заявки (кг)',
+    )
+    max_kg = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=100000,
+        help_text='Максимальный суммарный вес заявки (кг)',
+    )
+
+    class Meta:
+        verbose_name = 'Лимит веса заявок'
+        verbose_name_plural = 'Лимиты веса заявок'
+
+    def __str__(self):
+        return f'{self.min_kg} – {self.max_kg} кг'
+
+    @classmethod
+    def get_limits(cls):
+        from decimal import Decimal
+        row = cls.objects.first()
+        if row:
+            return row.min_kg, row.max_kg
+        return Decimal('100'), Decimal('100000')

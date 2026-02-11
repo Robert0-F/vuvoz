@@ -18,6 +18,7 @@ from .models import (
     NewsArticle,
     PriceList,
     RequestMaterialLine,
+    RequestWeightLimit,
 )
 from .permissions import (
     CanViewRequest,
@@ -346,6 +347,16 @@ class PriceListViewSet(viewsets.ModelViewSet):
                 'price_per_kg': str(p.price_per_kg),
             })
         return Response(rows)
+
+
+class WeightLimitsView(APIView):
+    """Returns min/max weight (kg) for collection requests. Authenticated."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        min_kg, max_kg = RequestWeightLimit.get_limits()
+        return Response({'min_kg': str(min_kg), 'max_kg': str(max_kg)})
 
 
 class CurrentUserView(APIView):

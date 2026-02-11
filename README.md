@@ -35,13 +35,36 @@ cd frontend && npm install && npm run dev
 
 ### Тестовые данные
 
+**Минимальный набор** (админ + одна компания + одно учреждение):
+
 ```bash
 python -c "exec(open('setup_dev_data.py').read()); run()"
 ```
 
-- **Администратор**: `admin@test.com` / `test123`
-- **Компания**: `company@test.com` / `test123`
-- **Учреждение**: `school1@test.com` / `test123`
+- Администратор: `admin@test.com` / `test123`
+- Компания: `company@test.com` / `test123`
+- Учреждение: `school1@test.com` / `test123`
+
+**Полный набор** (2 компании, 20 организаций с русскими названиями, 40 заявок — новые и завершённые). Запуск из корня проекта:
+
+```bash
+python scripts/load_test_data.py
+```
+
+Или через shell (обязательно `encoding='utf-8'` для корректных русских названий):
+
+```bash
+python manage.py shell -c "exec(open('scripts/load_test_data.py', encoding='utf-8').read()); run()"
+```
+
+- Компании: `company1@test.com`, `company2@test.com` / `test123`
+- Организации: школы, офисы, магазины, производство (логин = email организации, пароль `test123`). См. [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md).
+
+**Очистка базы** (оставить только админ):
+
+```bash
+python scripts/clear_db.py
+```
 
 ## Тесты
 
@@ -49,11 +72,14 @@ python -c "exec(open('setup_dev_data.py').read()); run()"
 pytest tests/ -v
 ```
 
+Ожидается 21 тест (API, лимиты веса, валидация заявок, профиль учреждения).
+
 ## Документация
 
 - [DEPLOYMENT.md](DEPLOYMENT.md) — развёртывание, Nginx, Gunicorn, Docker
 - [API_DOCS.md](API_DOCS.md) — описание всех API-эндпоинтов
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) — статус проекта, известные проблемы
+- [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md) — чек-лист ручной проверки интерфейса
 
 ## Структура проекта
 
@@ -63,6 +89,8 @@ vuvoz/
 ├── vuvoz/               # Django settings, urls
 ├── frontend/            # Vue SPA (Vite, Vuetify)
 ├── tests/               # Pytest тесты API
+├── scripts/             # load_test_data.py, clear_db.py, health_check.py
+├── docs/                # Чек-листы и доп. документация
 ├── manage.py
 ├── requirements.txt
 ├── Dockerfile

@@ -1,14 +1,17 @@
 <template>
   <div>
-    <v-app-bar color="primary" density="compact">
-      <v-app-bar-title>Панель администратора</v-app-bar-title>
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" location="top">
+      {{ snackbar.text }}
+    </v-snackbar>
+    <v-app-bar color="primary" density="compact" class="px-4 py-2">
+      <v-app-bar-title class="pl-2">Панель администратора</v-app-bar-title>
       <v-spacer />
       <span class="mr-2">{{ userStore.user?.username }}</span>
       <v-btn variant="text" icon="mdi-logout" @click="logout" />
     </v-app-bar>
 
-    <v-main class="pa-4">
-      <v-container fluid>
+    <v-main class="pa-50">
+      <v-container fluid class="pa-0 pa-sm-4">
         <v-tabs v-model="activeTab" class="mb-4">
           <v-tab value="prices">Цены на макулатуру</v-tab>
           <v-tab value="news">Новости</v-tab>
@@ -20,7 +23,7 @@
         <v-window v-model="activeTab">
           <!-- Prices -->
           <v-window-item value="prices">
-            <v-card>
+            <v-card class="rounded-lg" elevation="1">
               <v-card-title class="d-flex align-center">
                 Справочник цен (руб/кг)
                 <v-spacer />
@@ -114,7 +117,7 @@
 
           <!-- News -->
           <v-window-item value="news">
-            <v-card>
+            <v-card class="rounded-lg" elevation="1">
               <v-card-title class="d-flex align-center">
                 Новости
                 <v-spacer />
@@ -209,7 +212,7 @@
 
           <!-- Companies -->
           <v-window-item value="companies">
-            <v-card>
+            <v-card class="rounded-lg" elevation="1">
               <v-card-title class="d-flex align-center">
                 Все компании
                 <v-spacer />
@@ -228,21 +231,59 @@
                   {{ item.contact_phone }} / {{ item.contact_email }}
                 </template>
                 <template #item.actions="{ item }">
+                  <v-btn size="small" variant="text" @click="openCompanyCard(item)">Просмотр</v-btn>
                   <v-btn size="small" variant="text" @click="openCompanyDialog(item)">Изменить</v-btn>
                   <v-btn size="small" variant="text" color="error" @click="confirmDeleteCompany(item)">Удалить</v-btn>
                 </template>
               </v-data-table>
             </v-card>
 
+            <v-dialog v-model="companyCardDialog" max-width="640" persistent>
+              <v-card v-if="companyCard">
+                <v-card-title class="d-flex align-center">
+                  Карточка компании
+                  <v-spacer />
+                  <v-btn icon variant="text" @click="companyCardDialog = false">×</v-btn>
+                </v-card-title>
+                <v-divider />
+                <v-card-text class="text-body-2">
+                  <p><strong>Название:</strong> {{ companyCard.company_name }}</p>
+                  <p><strong>Почта:</strong> {{ companyCard.contact_email }}</p>
+                  <p><strong>Телефон:</strong> {{ companyCard.contact_phone }}</p>
+                  <p><strong>Адрес:</strong> {{ companyCard.address || '—' }}</p>
+                  <p><strong>Юр. адрес:</strong> {{ companyCard.legal_address || '—' }}</p>
+                  <p><strong>ИНН:</strong> {{ companyCard.inn || '—' }}</p>
+                  <p><strong>КПП:</strong> {{ companyCard.kpp || '—' }}</p>
+                  <p><strong>ОГРН:</strong> {{ companyCard.ogrn || '—' }}</p>
+                  <p><strong>Р/с:</strong> {{ companyCard.bank_account || '—' }}</p>
+                  <p><strong>Банк:</strong> {{ companyCard.bank_name || '—' }}</p>
+                  <p><strong>БИК:</strong> {{ companyCard.bik || '—' }}</p>
+                  <p><strong>Корр. счёт:</strong> {{ companyCard.corr_account || '—' }}</p>
+                  <p><strong>Сайт:</strong> {{ companyCard.website || '—' }}</p>
+                  <p v-if="companyCard.description"><strong>Описание:</strong><br />{{ companyCard.description }}</p>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" @click="companyCardDialog = false; openCompanyDialog(companyCard)">Изменить</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
             <v-dialog v-model="companyDialog" max-width="600" persistent scrollable>
               <v-card>
                 <v-card-title>{{ editingCompany ? 'Редактировать компанию' : 'Новая компания' }}</v-card-title>
                 <v-card-text style="max-height: 70vh" class="overflow-y-auto">
+                  <v-alert v-if="Object.keys(companyFormErrors).length" type="error" density="compact" class="mb-2">
+                    <div v-for="(msgs, key) in companyFormErrors" :key="key">
+                      {{ Array.isArray(msgs) ? msgs.join(' ') : msgs }}
+                    </div>
+                  </v-alert>
                   <v-text-field
                     v-model="companyForm.company_name"
                     label="Название компании *"
                     variant="outlined"
                     class="mb-2"
+                    :error-messages="companyFormErrors.company_name"
                   />
                   <v-text-field
                     v-model="companyForm.contact_email"
@@ -251,11 +292,11 @@
                     variant="outlined"
                     class="mb-2"
                     :disabled="!!editingCompany"
+                    :error-messages="companyFormErrors.contact_email || companyFormErrors.email"
                   />
                   <v-text-field
-                    v-if="!editingCompany"
                     v-model="companyForm.password"
-                    label="Пароль (необяз. — сгенерируется)"
+                    :label="editingCompany ? 'Новый пароль (оставьте пустым, чтобы не менять)' : 'Пароль (необяз. — сгенерируется)'"
                     type="password"
                     variant="outlined"
                     class="mb-2"
@@ -265,6 +306,9 @@
                     label="Телефон *"
                     variant="outlined"
                     class="mb-2"
+                    hint="Формат: 7 XXX XXX XX XX или +7 XXX XXX XX XX (плюс необязателен)"
+                    persistent-hint
+                    :error-messages="companyFormErrors.contact_phone"
                   />
                   <v-textarea
                     v-model="companyForm.address"
@@ -360,10 +404,20 @@
 
           <!-- Institutions -->
           <v-window-item value="institutions">
-            <v-card>
-              <v-card-title class="d-flex align-center">
+            <v-card class="rounded-lg" elevation="1">
+              <v-card-title class="d-flex align-center flex-wrap">
                 Все организации
                 <v-spacer />
+                <v-text-field
+                  v-model="institutionSearchName"
+                  density="compact"
+                  hide-details
+                  label="Поиск по названию"
+                  variant="outlined"
+                  clearable
+                  style="max-width: 220px"
+                  class="mr-2"
+                />
                 <v-btn color="primary" prepend-icon="mdi-plus" @click="openInstitutionDialog()">
                   Добавить организацию
                 </v-btn>
@@ -371,7 +425,7 @@
               <v-divider />
               <v-data-table
                 :headers="institutionHeaders"
-                :items="institutions"
+                :items="filteredInstitutions"
                 :loading="loadingInstitutions"
                 item-value="id"
               >
@@ -379,16 +433,55 @@
                   {{ item.contact_person }} / {{ item.phone }}
                 </template>
                 <template #item.actions="{ item }">
+                  <v-btn size="small" variant="text" @click="openInstitutionCard(item)">Просмотр</v-btn>
                   <v-btn size="small" variant="text" @click="openInstitutionDialog(item)">Изменить</v-btn>
                   <v-btn size="small" variant="text" color="error" @click="confirmDeleteInstitution(item)">Удалить</v-btn>
                 </template>
               </v-data-table>
             </v-card>
 
+            <v-dialog v-model="institutionCardDialog" max-width="640" persistent>
+              <v-card v-if="institutionCard">
+                <v-card-title class="d-flex align-center">
+                  Карточка организации
+                  <v-spacer />
+                  <v-btn icon variant="text" @click="institutionCardDialog = false">×</v-btn>
+                </v-card-title>
+                <v-divider />
+                <v-card-text class="text-body-2">
+                  <p><strong>Название:</strong> {{ institutionCard.institution_name }}</p>
+                  <p><strong>Компания:</strong> {{ institutionCard.parent_company_name }}</p>
+                  <p><strong>Тип:</strong> {{ institutionCard.institution_type }}</p>
+                  <p><strong>Почта / Логин:</strong> {{ institutionCard.email }}</p>
+                  <p><strong>Контактное лицо:</strong> {{ institutionCard.contact_person }}</p>
+                  <p><strong>Телефон:</strong> {{ institutionCard.phone }}</p>
+                  <p><strong>Адрес:</strong> {{ institutionCard.address || '—' }}</p>
+                  <p><strong>Юр. адрес:</strong> {{ institutionCard.legal_address || '—' }}</p>
+                  <p><strong>ИНН:</strong> {{ institutionCard.inn || '—' }}</p>
+                  <p><strong>КПП:</strong> {{ institutionCard.kpp || '—' }}</p>
+                  <p><strong>Контакт на площадке:</strong> {{ institutionCard.contact_person_on_site || '—' }}</p>
+                  <p><strong>Телефон на площадке:</strong> {{ institutionCard.phone_on_site || '—' }}</p>
+                  <p><strong>Предпочтительные дни:</strong> {{ institutionCard.preferred_days || '—' }}</p>
+                  <p><strong>Предпочтительные часы:</strong> {{ institutionCard.preferred_hours || '—' }}</p>
+                  <p v-if="institutionCard.access_details"><strong>Детали доступа:</strong><br />{{ institutionCard.access_details }}</p>
+                  <p v-if="institutionCard.container_location"><strong>Расположение контейнера:</strong><br />{{ institutionCard.container_location }}</p>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" @click="institutionCardDialog = false; openInstitutionDialog(institutionCard)">Изменить</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
             <v-dialog v-model="institutionDialog" max-width="600" persistent scrollable>
               <v-card>
                 <v-card-title>{{ editingInstitution ? 'Редактировать организацию' : 'Новая организация' }}</v-card-title>
                 <v-card-text style="max-height: 70vh" class="overflow-y-auto">
+                  <v-alert v-if="Object.keys(institutionFormErrors).length" type="error" density="compact" class="mb-2">
+                    <div v-for="(msgs, key) in institutionFormErrors" :key="key">
+                      {{ Array.isArray(msgs) ? msgs.join(' ') : msgs }}
+                    </div>
+                  </v-alert>
                   <v-select
                     v-model="institutionForm.parent_company"
                     :items="companies"
@@ -441,9 +534,10 @@
                     v-model="institutionForm.phone"
                     label="Телефон *"
                     variant="outlined"
-                    hint="Формат: +7 XXX XXX XX XX"
+                    hint="Формат: 7 XXX XXX XX XX или +7 XXX XXX XX XX (плюс необязателен)"
                     persistent-hint
                     class="mb-2"
+                    :error-messages="institutionFormErrors.phone"
                   />
                   <v-textarea
                     v-model="institutionForm.legal_address"
@@ -529,10 +623,9 @@
 
           <!-- Requests -->
           <v-window-item value="requests">
-            <v-card>
-              <v-card-title class="d-flex align-center">
+            <v-card class="rounded-lg" elevation="1">
+              <v-card-title class="d-flex align-center flex-wrap ga-2">
                 Все заявки
-                <v-spacer />
                 <v-select
                   v-model="requestStatusFilter"
                   :items="requestStatusOptions"
@@ -540,8 +633,27 @@
                   hide-details
                   label="Статус"
                   variant="outlined"
-                  style="max-width: 160px"
+                  style="max-width: 140px"
                 />
+                <v-text-field
+                  v-model="requestInstitutionFilter"
+                  density="compact"
+                  hide-details
+                  label="Организация"
+                  variant="outlined"
+                  clearable
+                  style="max-width: 200px"
+                />
+                <v-text-field
+                  v-model="requestCompanyFilter"
+                  density="compact"
+                  hide-details
+                  label="Компания"
+                  variant="outlined"
+                  clearable
+                  style="max-width: 200px"
+                />
+                <v-spacer />
               </v-card-title>
               <v-divider />
               <v-data-table
@@ -564,8 +676,38 @@
                 <template #item.actual_value="{ item }">
                   {{ item.actual_value != null ? `${item.actual_value} руб.` : '—' }}
                 </template>
+                <template #item.actions="{ item }">
+                  <v-btn size="small" variant="text" @click="openRequestCard(item)">Просмотр</v-btn>
+                </template>
               </v-data-table>
             </v-card>
+
+            <v-dialog v-model="requestCardDialog" max-width="640" persistent>
+              <v-card v-if="requestCard">
+                <v-card-title class="d-flex align-center">
+                  Заявка {{ requestCard.request_number || requestCard.id }}
+                  <v-spacer />
+                  <v-btn icon variant="text" @click="requestCardDialog = false">×</v-btn>
+                </v-card-title>
+                <v-divider />
+                <v-card-text class="text-body-2">
+                  <p><strong>Организация:</strong> {{ requestCard.institution_name }}</p>
+                  <p><strong>Компания:</strong> {{ requestCard.receiving_company_name }}</p>
+                  <p><strong>Статус:</strong> {{ requestStatusLabel(requestCard.status) }}</p>
+                  <p><strong>Тип макулатуры:</strong> {{ requestCard.material_type_display || requestCard.material_type || '—' }}</p>
+                  <p><strong>Вес (кг):</strong> {{ requestCard.estimated_amount ?? requestCard.paper_weight_kg ?? '—' }}</p>
+                  <p><strong>Ориент. стоимость:</strong> {{ requestCard.estimated_value != null ? `${requestCard.estimated_value} руб.` : '—' }}</p>
+                  <p><strong>Факт. стоимость:</strong> {{ requestCard.actual_value != null ? `${requestCard.actual_value} руб.` : '—' }}</p>
+                  <p><strong>Желаемая дата:</strong> {{ requestCard.desired_date || '—' }}</p>
+                  <p><strong>Комментарий:</strong> {{ requestCard.comment || '—' }}</p>
+                  <p><strong>Дата создания:</strong> {{ requestCard.created_at }}</p>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" @click="requestCardDialog = false">Закрыть</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
           </v-window-item>
         </v-window>
       </v-container>
@@ -656,6 +798,10 @@ const companyForm = reactive({
 const deleteCompanyDialog = ref(false)
 const companyToDelete = ref<CompanyProfile | null>(null)
 const deletingCompany = ref(false)
+const companyCardDialog = ref(false)
+const companyCard = ref<CompanyProfile | null>(null)
+const companyFormErrors = ref<Record<string, string[]>>({})
+const snackbar = ref({ show: false, text: '', color: 'error' })
 
 const institutionDialog = ref(false)
 const editingInstitution = ref<InstitutionProfile | null>(null)
@@ -682,6 +828,7 @@ const institutionForm = reactive({
 const deleteInstitutionDialog = ref(false)
 const institutionToDelete = ref<InstitutionProfile | null>(null)
 const deletingInstitution = ref(false)
+const institutionFormErrors = ref<Record<string, string[]>>({})
 
 const materialTypeItems = [
   { title: 'Бумага', value: 'paper' },
@@ -726,6 +873,7 @@ const requestHeaders = [
   { title: 'Факт. стоимость', key: 'actual_value' },
   { title: 'Статус', key: 'status' },
   { title: 'Дата создания', key: 'created_at' },
+  { title: 'Действия', key: 'actions', sortable: false, width: '100' },
 ]
 
 const requestStatusOptions = [
@@ -735,10 +883,45 @@ const requestStatusOptions = [
   { title: 'Завершённые', value: 'completed' },
 ]
 
-const filteredAdminRequests = computed(() => {
-  if (requestStatusFilter.value === 'all') return adminRequests.value
-  return adminRequests.value.filter((r) => r.status === requestStatusFilter.value)
+const institutionSearchName = ref('')
+const requestInstitutionFilter = ref('')
+const requestCompanyFilter = ref('')
+const institutionCardDialog = ref(false)
+const institutionCard = ref<InstitutionProfile | null>(null)
+const requestCardDialog = ref(false)
+const requestCard = ref<CollectionRequest | null>(null)
+
+const filteredInstitutions = computed(() => {
+  const q = institutionSearchName.value?.trim().toLowerCase() || ''
+  if (!q) return institutions.value
+  return institutions.value.filter((i) => i.institution_name.toLowerCase().includes(q))
 })
+
+const filteredAdminRequests = computed(() => {
+  let list = adminRequests.value
+  if (requestStatusFilter.value !== 'all') {
+    list = list.filter((r) => r.status === requestStatusFilter.value)
+  }
+  const instQ = requestInstitutionFilter.value?.trim().toLowerCase() || ''
+  if (instQ) {
+    list = list.filter((r) => (r.institution_name || '').toLowerCase().includes(instQ))
+  }
+  const compQ = requestCompanyFilter.value?.trim().toLowerCase() || ''
+  if (compQ) {
+    list = list.filter((r) => (r.receiving_company_name || '').toLowerCase().includes(compQ))
+  }
+  return list
+})
+
+function openInstitutionCard(item: InstitutionProfile) {
+  institutionCard.value = item
+  institutionCardDialog.value = true
+}
+
+function openRequestCard(item: CollectionRequest) {
+  requestCard.value = item
+  requestCardDialog.value = true
+}
 
 function requestStatusLabel(s: string) {
   const m: Record<string, string> = { new: 'Новый', accepted: 'Принят', completed: 'Завершён' }
@@ -943,7 +1126,13 @@ async function doDeletePrice() {
   }
 }
 
+function openCompanyCard(item: CompanyProfile) {
+  companyCard.value = item
+  companyCardDialog.value = true
+}
+
 function openCompanyDialog(item?: CompanyProfile) {
+  companyFormErrors.value = {}
   editingCompany.value = item ?? null
   if (item) {
     companyForm.company_name = item.company_name
@@ -981,6 +1170,7 @@ function openCompanyDialog(item?: CompanyProfile) {
 }
 
 async function saveCompany() {
+  companyFormErrors.value = {}
   savingCompany.value = true
   try {
     const payload: Record<string, string> = {
@@ -1000,6 +1190,7 @@ async function saveCompany() {
       description: companyForm.description || '',
     }
     if (editingCompany.value) {
+      if (companyForm.password) payload.password = companyForm.password
       await api.patch(`/company-profiles/${editingCompany.value.id}/`, payload)
     } else {
       await api.post('/company-profiles/', {
@@ -1010,6 +1201,20 @@ async function saveCompany() {
     }
     companyDialog.value = false
     await loadCompanies()
+    snackbar.value = { show: true, text: 'Сохранено', color: 'success' }
+  } catch (err: unknown) {
+    const ax = err as { response?: { data?: Record<string, unknown>; status?: number } }
+    const data = ax.response?.data
+    if (ax.response?.status === 400 && data && typeof data === 'object') {
+      const errors: Record<string, string[]> = {}
+      for (const [k, v] of Object.entries(data)) {
+        errors[k] = Array.isArray(v) ? v.map(String) : [String(v)]
+      }
+      companyFormErrors.value = errors
+      snackbar.value = { show: true, text: 'Исправьте ошибки в форме', color: 'error' }
+    } else {
+      snackbar.value = { show: true, text: (data && typeof (data as { detail?: string }).detail === 'string') ? (data as { detail: string }).detail : 'Ошибка при сохранении', color: 'error' }
+    }
   } finally {
     savingCompany.value = false
   }
@@ -1035,6 +1240,7 @@ async function doDeleteCompany() {
 }
 
 async function openInstitutionDialog(item?: InstitutionProfile) {
+  institutionFormErrors.value = {}
   editingInstitution.value = item ?? null
   if (item) {
     institutionForm.parent_company = item.parent_company
@@ -1078,6 +1284,7 @@ async function openInstitutionDialog(item?: InstitutionProfile) {
 }
 
 async function saveInstitution() {
+  institutionFormErrors.value = {}
   savingInstitution.value = true
   try {
     const payload: Record<string, unknown> = {
@@ -1111,6 +1318,20 @@ async function saveInstitution() {
     }
     institutionDialog.value = false
     await loadInstitutions()
+    snackbar.value = { show: true, text: 'Сохранено', color: 'success' }
+  } catch (err: unknown) {
+    const ax = err as { response?: { data?: Record<string, unknown>; status?: number } }
+    const data = ax.response?.data
+    if (ax.response?.status === 400 && data && typeof data === 'object') {
+      const errors: Record<string, string[]> = {}
+      for (const [k, v] of Object.entries(data)) {
+        errors[k] = Array.isArray(v) ? v.map(String) : [String(v)]
+      }
+      institutionFormErrors.value = errors
+      snackbar.value = { show: true, text: 'Исправьте ошибки в форме', color: 'error' }
+    } else {
+      snackbar.value = { show: true, text: (data && typeof (data as { detail?: string }).detail === 'string') ? (data as { detail: string }).detail : 'Ошибка при сохранении', color: 'error' }
+    }
   } finally {
     savingInstitution.value = false
   }

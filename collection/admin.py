@@ -9,6 +9,7 @@ from .models import (
     InstitutionProfile,
     NewsArticle,
     PriceList,
+    RequestWeightLimit,
 )
 
 
@@ -104,6 +105,18 @@ class NewsArticleAdmin(admin.ModelAdmin):
     search_fields = ('title', 'content')
     raw_id_fields = ('author',)
     readonly_fields = ('created_at',)
+
+
+@admin.register(RequestWeightLimit)
+class RequestWeightLimitAdmin(admin.ModelAdmin):
+    list_display = ('id', 'min_kg', 'max_kg')
+    list_editable = ('min_kg', 'max_kg')
+
+    def has_add_permission(self, request):
+        return not RequestWeightLimit.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PriceList)
