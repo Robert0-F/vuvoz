@@ -216,8 +216,6 @@ async function loadNews() {
   }
 }
 
-const hasMore = ref(false)
-
 function goToNews(id: number) {
   router.push({ name: 'NewsDetail', params: { id: String(id) } })
 }

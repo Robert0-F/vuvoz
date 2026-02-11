@@ -5,7 +5,6 @@ import type {
   CurrentUserResponse,
   CompanyProfile,
   InstitutionProfile,
-  UserRole,
 } from '@/types'
 
 export const useUserStore = defineStore('user', () => {

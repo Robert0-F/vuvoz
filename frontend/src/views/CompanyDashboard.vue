@@ -142,7 +142,7 @@
               <v-card-text>
                 <v-row v-if="companyStats">
                   <v-col cols="12" sm="6" md="3">
-                    <StatsCard title="Заявок за период" :value="companyStats.total_requests" icon="mdi-file-document-multiple" color="primary" />
+                    <StatsCard title="Заявок за период" :value="companyStats.total_requests ?? 0" icon="mdi-file-document-multiple" color="primary" />
                   </v-col>
                   <v-col cols="12" sm="6" md="3">
                     <StatsCard title="Завершено" :value="companyStats.requests_by_status?.completed ?? 0" icon="mdi-check-circle" color="success" />
@@ -151,7 +151,7 @@
                     <StatsCard title="Вывезено (кг)" :value="String(companyStats.total_weight_kg ?? 0)" icon="mdi-weight-kilogram" color="info" />
                   </v-col>
                   <v-col cols="12" sm="6" md="3">
-                    <StatsCard title="Организаций" :value="companyStats.total_institutions" icon="mdi-domain" color="secondary" />
+                    <StatsCard title="Организаций" :value="companyStats.total_institutions ?? 0" icon="mdi-domain" color="secondary" />
                   </v-col>
                   <v-col v-if="companyStats.avg_processing_time_hours != null" cols="12" md="6">
                     <v-card variant="tonal" class="pa-3">
