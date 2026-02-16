@@ -7,6 +7,7 @@ from .views import (
     CompanyProfileViewSet,
     CompanyStatsView,
     CurrentUserView,
+    HealthView,
     InstitutionStatsView,
     InstitutionViewSet,
     NewsArticleViewSet,
@@ -24,6 +25,7 @@ router.register(r'prices', PriceListViewSet, basename='pricelist')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
+    path('health/', HealthView.as_view(), name='health'),
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('stats/company/', CompanyStatsView.as_view(), name='stats-company'),

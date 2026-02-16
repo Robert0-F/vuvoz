@@ -48,6 +48,14 @@ from .serializers import (
 )
 
 
+class HealthView(APIView):
+    """GET /api/health/ — no auth. Use to check that Django is responding."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({'status': 'ok'})
+
+
 class CompanyProfileViewSet(
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,

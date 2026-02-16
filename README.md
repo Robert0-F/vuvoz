@@ -30,8 +30,10 @@ python manage.py runserver
 cd frontend && npm install && npm run dev
 ```
 
-- **API**: http://localhost:8000/api/
-- **Frontend**: http://localhost:5173 (прокси `/api` на 8000)
+- **API**: http://localhost:8000/api/ (проверка: http://localhost:8000/api/health/)
+- **Frontend**: http://localhost:5173 (прокси `/api` на 8000). Открывайте сайт по этому адресу, не по 8000.
+
+Если Vue не подключается к Django (страницы не загружаются, запросы не проходят) — см. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ### Тестовые данные
 
@@ -80,6 +82,7 @@ pytest tests/ -v
 - [API_DOCS.md](API_DOCS.md) — описание всех API-эндпоинтов
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) — статус проекта, известные проблемы
 - [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md) — чек-лист ручной проверки интерфейса
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — если Vue не подключается к Django, страницы не загружаются
 
 ## Структура проекта
 
