@@ -5,12 +5,17 @@ from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
+    BonusConfig,
     CollectionRequest,
     CompanyProfile,
+    InstitutionBonus,
     InAppNotification,
     InstitutionProfile,
     NewsArticle,
+    PointsOrder,
+    PointsOrderLine,
     PriceList,
+    Product,
     RequestMaterialLine,
 )
 from .validators import (
@@ -184,6 +189,7 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
             'phone',
             'email',
             'institution_type',
+            'bonus_balance',
             'legal_address',
             'inn',
             'kpp',
@@ -644,3 +650,130 @@ class CalculatePreviewSerializer(serializers.Serializer):
         raise serializers.ValidationError(
             'Укажите material_type и amount_kg или material_lines.'
         )
+
+
+class BonusConfigSerializer(serializers.ModelSerializer):
+    """Single global bonus percent. Admin only."""
+
+    class Meta:
+        model = BonusConfig
+        fields = ['id', 'bonus_percent']
+
+
+class InstitutionBonusSerializer(serializers.ModelSerializer):
+    """Bonus for an institution from a completed request. Admin: list, retrieve, update awarded_amount and confirm."""
+
+    institution_name = serializers.CharField(source='institution.institution_name', read_only=True)
+    request_number = serializers.CharField(source='collection_request.request_number', read_only=True)
+    order_value = serializers.SerializerMethodField()
+
+    def get_order_value(self, obj):
+        req = obj.collection_request
+        val = req.actual_value or req.estimated_value
+        return str(val) if val is not None else None
+
+    class Meta:
+        model = InstitutionBonus
+        fields = [
+            'id',
+            'collection_request',
+            'institution',
+            'institution_name',
+            'request_number',
+            'order_value',
+            'calculated_amount',
+            'awarded_amount',
+            'status',
+            'confirmed_at',
+            'confirmed_by',
+            'created_at',
+        ]
+        read_only_fields = [
+            'id',
+            'collection_request',
+            'institution',
+            'institution_name',
+            'request_number',
+            'order_value',
+            'calculated_amount',
+            'created_at',
+        ]
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    """Product for points catalog. Admin: CRUD. Institution: read-only list."""
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['id', 'name', 'description', 'image', 'image_url', 'price_in_points', 'is_active', 'created_at']
+        read_only_fields = ['image_url']
+
+    def get_image_url(self, obj):
+        if not obj.image or not obj.image.name:
+            return None
+        from django.conf import settings
+        base = getattr(settings, 'BASE_URL', None)
+        url = obj.image.url
+        # Ensure path is absolute so build_absolute_uri works (MEDIA_URL should be '/media/').
+        if url and not url.startswith('/') and not url.startswith('http'):
+            url = '/' + url
+        if base:
+            return f"{base.rstrip('/')}/{url.lstrip('/')}"
+        request = self.context.get('request')
+        if request and url:
+            return request.build_absolute_uri(url)
+        return url or None
+
+
+class PointsOrderLineSerializer(serializers.ModelSerializer):
+    """Line in a points order."""
+    product_name = serializers.CharField(source='product.name', read_only=True)
+
+    class Meta:
+        model = PointsOrderLine
+        fields = ['id', 'product', 'product_name', 'quantity', 'price_at_order']
+
+
+class PointsOrderSerializer(serializers.ModelSerializer):
+    """Order placed with green points."""
+    lines = PointsOrderLineSerializer(many=True, read_only=True)
+    institution_name = serializers.CharField(source='institution.institution_name', read_only=True)
+
+    class Meta:
+        model = PointsOrder
+        fields = [
+            'id', 'institution', 'institution_name', 'status',
+            'recipient_name', 'recipient_phone', 'address',
+            'total_points', 'created_at', 'lines',
+        ]
+        read_only_fields = ['id', 'institution', 'institution_name', 'total_points', 'created_at', 'lines']
+
+
+class PointsOrderStatusSerializer(serializers.ModelSerializer):
+    """Admin: update order status only (accepted, completed, cancelled)."""
+
+    class Meta:
+        model = PointsOrder
+        fields = ['status']
+
+
+class PointsOrderCreateSerializer(serializers.Serializer):
+    """Create order: delivery info + list of { product_id, quantity }."""
+    recipient_name = serializers.CharField(max_length=255)
+    recipient_phone = serializers.CharField(max_length=50)
+    address = serializers.CharField(style={'base_template': 'textarea.html'})
+    items = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='List of { "product_id": int, "quantity": int }',
+    )
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError('Выберите хотя бы один товар.')
+        for i, item in enumerate(value):
+            if not isinstance(item.get('product_id'), int) or not isinstance(item.get('quantity'), int):
+                raise serializers.ValidationError(f'Строка {i + 1}: укажите product_id и quantity (целые числа).')
+            if item['quantity'] < 1:
+                raise serializers.ValidationError(f'Строка {i + 1}: количество должно быть не менее 1.')
+        return value

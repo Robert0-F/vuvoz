@@ -40,6 +40,7 @@ export interface InstitutionProfile {
   phone: string
   email: string
   institution_type: string
+  bonus_balance?: string
   legal_address?: string
   inn?: string
   kpp?: string
@@ -51,6 +52,23 @@ export interface InstitutionProfile {
   container_location?: string
   company_notes?: string
   created_at: string
+}
+
+export interface Product {
+  id: number
+  name: string
+  description: string
+  price_in_points: string
+  is_active: boolean
+  image_url?: string | null
+  created_at: string
+}
+
+export interface PointsHistoryItem {
+  type: 'accrual' | 'expense'
+  amount: string
+  date: string | null
+  reference: string
 }
 
 export type RequestStatus = 'new' | 'accepted' | 'completed'

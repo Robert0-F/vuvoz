@@ -87,6 +87,12 @@ class InstitutionProfile(models.Model):
         blank=True,
         help_text='Заметка компании об организации (редактирует только компания)',
     )
+    bonus_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text='Баланс зелёных баллов (начисления минус траты)',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -374,3 +380,179 @@ class RequestWeightLimit(models.Model):
         if row:
             return row.min_kg, row.max_kg
         return Decimal('100'), Decimal('100000')
+
+
+class BonusConfig(models.Model):
+    """Global bonus rate for institutions: percentage of order value. Single row, edited in admin."""
+
+    bonus_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text='Процент бонуса от суммы заявки (например 1.00 = 1%)',
+    )
+
+    class Meta:
+        verbose_name = 'Настройка бонусов'
+        verbose_name_plural = 'Настройки бонусов'
+
+    def __str__(self):
+        return f'{self.bonus_percent}%'
+
+    @classmethod
+    def get_percent(cls):
+        from decimal import Decimal
+        row = cls.objects.first()
+        if row is not None:
+            return row.bonus_percent
+        return Decimal('0')
+
+
+class InstitutionBonus(models.Model):
+    """Bonus for an institution from a completed collection request. Created when request is completed; admin confirms amount and awards."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Ожидает подтверждения'
+        CONFIRMED = 'confirmed', 'Начислен'
+
+    collection_request = models.OneToOneField(
+        CollectionRequest,
+        on_delete=models.CASCADE,
+        related_name='institution_bonus',
+    )
+    institution = models.ForeignKey(
+        InstitutionProfile,
+        on_delete=models.CASCADE,
+        related_name='bonuses',
+    )
+    calculated_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text='Сумма по расчёту (стоимость заявки × процент)',
+    )
+    awarded_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text='Фактически начисленная сумма (может изменить администратор)',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_bonuses',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Бонус организации'
+        verbose_name_plural = 'Бонусы организаций'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.institution.institution_name} — {self.awarded_amount or self.calculated_amount} баллов (заявка {self.collection_request_id})'
+
+
+class Product(models.Model):
+    """Product that institutions can order for green points. Created and managed in admin."""
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    image = models.ImageField(
+        upload_to='products/',
+        blank=True,
+        null=True,
+        help_text='Фото товара',
+    )
+    price_in_points = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text='Цена в зелёных баллах',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Товар (баллы)'
+        verbose_name_plural = 'Товары (баллы)'
+        ordering = ['name']
+
+    def __str__(self):
+        return f'{self.name} — {self.price_in_points} баллов'
+
+
+class PointsOrder(models.Model):
+    """Order placed by an institution, paid with green points."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Ожидает'
+        ACCEPTED = 'accepted', 'Принят'
+        COMPLETED = 'completed', 'Доставлен'
+        CANCELLED = 'cancelled', 'Отменён'
+
+    institution = models.ForeignKey(
+        InstitutionProfile,
+        on_delete=models.CASCADE,
+        related_name='points_orders',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    recipient_name = models.CharField(max_length=255)
+    recipient_phone = models.CharField(max_length=50)
+    address = models.TextField()
+    total_points = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Заказ на баллы'
+        verbose_name_plural = 'Заказы на баллы'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Заказ #{self.id} — {self.institution.institution_name} — {self.total_points} баллов'
+
+
+class PointsOrderLine(models.Model):
+    """Line item in a points order: product and quantity."""
+
+    order = models.ForeignKey(
+        PointsOrder,
+        on_delete=models.CASCADE,
+        related_name='lines',
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        related_name='order_lines',
+    )
+    quantity = models.PositiveIntegerField(default=1)
+    price_at_order = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text='Цена за единицу в баллах на момент заказа',
+    )
+
+    class Meta:
+        verbose_name = 'Строка заказа (баллы)'
+        verbose_name_plural = 'Строки заказов (баллы)'
+
+    def __str__(self):
+        return f'{self.product.name} × {self.quantity}'

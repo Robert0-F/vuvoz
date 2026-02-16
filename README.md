@@ -30,8 +30,8 @@ python manage.py runserver
 cd frontend && npm install && npm run dev
 ```
 
-- **API**: http://localhost:8000/api/ (проверка: http://localhost:8000/api/health/)
-- **Frontend**: http://localhost:5173 (прокси `/api` на 8000). Открывайте сайт по этому адресу, не по 8000.
+- **API**: http://localhost:8000/api/ (проверка: http://localhost:8000/api/health/). Браузерный интерфейс DRF со стилями доступен и по http://localhost:5173/api/… (прокси `/api`, `/media`, `/static` на 8000).
+- **Frontend**: http://localhost:5173. Открывайте сайт по этому адресу; фото товаров (баллы) подгружаются с 8000 (`BASE_URL` в dev указывает на backend).
 
 Если Vue не подключается к Django (страницы не загружаются, запросы не проходят) — см. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
@@ -61,6 +61,16 @@ python manage.py shell -c "exec(open('scripts/load_test_data.py', encoding='utf-
 
 - Компании: `company1@test.com`, `company2@test.com` / `test123`
 - Организации: школы, офисы, магазины, производство (логин = email организации, пароль `test123`). См. [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md).
+
+**Товары за баллы** — создать 10 тестовых товаров: `python scripts/create_bonus_products.py`.
+
+**Фото товаров** — сохраняются в `media/products/`. Чтобы хотя бы один товар показывал фото: загрузите в **Django admin** (http://localhost:8000/admin/ → «Товары (баллы)») или выполните скрипт (после `create_bonus_products.py`):
+
+```bash
+python scripts/attach_test_product_image.py
+```
+
+> **Примечание**: Загрузка фото из Vue-админки (вкладка «Товары») может не сохраняться — см. [PROJECT_STATUS.md](PROJECT_STATUS.md). Пока используйте Django admin или скрипт.
 
 **Очистка базы** (оставить только админ):
 
@@ -92,7 +102,7 @@ vuvoz/
 ├── vuvoz/               # Django settings, urls
 ├── frontend/            # Vue SPA (Vite, Vuetify)
 ├── tests/               # Pytest тесты API
-├── scripts/             # load_test_data.py, clear_db.py, health_check.py
+├── scripts/             # load_test_data.py, clear_db.py, create_bonus_products.py, attach_test_product_image.py
 ├── docs/                # Чек-листы и доп. документация
 ├── manage.py
 ├── requirements.txt

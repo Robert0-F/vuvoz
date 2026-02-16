@@ -16,10 +16,11 @@
 - [x] Заявки на сбор (с материалами, статусами, лимитами мин/макс веса)
 - [x] Прайс-листы
 - [x] Новости (публичный доступ + CRUD для админов)
+- [x] Зелёные баллы: каталог товаров, заказы, история начислений/трат
 - [x] Уведомления
 - [x] Статистика для компаний и учреждений
 - [x] Docker (PostgreSQL + Django + Nginx)
-- [x] Скрипты тестовых данных и очистки БД (`scripts/load_test_data.py`, `scripts/clear_db.py`)
+- [x] Скрипты тестовых данных, очистки БД и тестового фото товара (`scripts/load_test_data.py`, `scripts/clear_db.py`, `scripts/create_bonus_products.py`, `scripts/attach_test_product_image.py`)
 - [x] Единообразный UI: отступы шапки, скругление и тени карточек; чек-лист проверки интерфейса
 
 ## Последние изменения (для релиза / проверки на другой машине)
@@ -29,21 +30,23 @@
 - **Скрипты**:
   - `scripts/load_test_data.py` — 2 компании, 20 организаций (школы, офисы, магазины, производство) с русскими названиями, по 1 новой и 1 завершённой заявке на организацию (40 заявок). Запуск из корня: `python scripts/load_test_data.py`. Файл в UTF-8.
   - `scripts/clear_db.py` — очистка БД с сохранением только суперпользователей (админ). Запуск: `python scripts/clear_db.py`.
-- **Документация**: README обновлён (тестовые данные, скрипты, кол-во тестов); добавлен [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md) для ручной проверки интерфейса.
+- **Зелёные баллы**: каталог товаров (Product), заказы (PointsOrder), история в `/api/me/points/`; админ управляет товарами и статусами заказов; учреждения заказывают за баллы. API: `/api/products/`, `/api/points-orders/`.
+- **Фото товаров**: `Product.image` (ImageField), `image_url` в API; фото в `media/products/`; Vite проксирует `/media` и `/static` на Django.
+- **Документация**: README, API_DOCS, TROUBLESHOOTING, [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md).
 
 ## Известные проблемы / TODOs
 
 | # | Описание | Приоритет |
 |---|----------|-----------|
 | 1 | NewsArticle.image — FileField вместо ImageField (Pillow не обязателен) | Низкий |
-| 2 | MEDIA_URL — относительный путь `media/`; для production может потребоваться полный URL | Средний |
+| 2 | **Загрузка фото товара из админ-интерфейса (Vue) может не сохраняться** — временно загружать через Django admin или `scripts/attach_test_product_image.py` | Высокий |
 | 3 | Rate limiting не настроен | Средний |
 | 4 | Нет Vue-компонентных тестов | Низкий |
 
 ## Технический долг
 
 - Дублирование `validate_inn`/`validate_kpp` в InstitutionProfileSerializer
-- Postman-коллекция устарела: нет endpoints для news, material_lines
+- Postman-коллекция устарела: нет endpoints для news, material_lines, products, points-orders
 
 ## Рекомендации
 

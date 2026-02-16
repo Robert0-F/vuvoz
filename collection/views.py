@@ -11,12 +11,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
+    BonusConfig,
     CollectionRequest,
     CompanyProfile,
+    InstitutionBonus,
     InAppNotification,
     InstitutionProfile,
     NewsArticle,
+    PointsOrder,
+    PointsOrderLine,
     PriceList,
+    Product,
     RequestMaterialLine,
     RequestWeightLimit,
 )
@@ -30,6 +35,7 @@ from .permissions import (
     IsOwnCompany,
 )
 from .serializers import (
+    BonusConfigSerializer,
     CalculatePreviewSerializer,
     CollectionRequestCompleteSerializer,
     CollectionRequestCreateSerializer,
@@ -37,13 +43,18 @@ from .serializers import (
     CompanyProfileSerializer,
     CompanyStatsSerializer,
     CollectionRequestSerializer,
+    InstitutionBonusSerializer,
     InstitutionCreateSerializer,
     InstitutionProfileSerializer,
     InstitutionStatsSerializer,
     InstitutionUpdateSerializer,
     NewsArticleSerializer,
     NotificationSerializer,
+    PointsOrderCreateSerializer,
+    PointsOrderSerializer,
+    PointsOrderStatusSerializer,
     PriceListSerializer,
+    ProductSerializer,
     UserBasicSerializer,
 )
 
@@ -367,6 +378,65 @@ class WeightLimitsView(APIView):
         return Response({'min_kg': str(min_kg), 'max_kg': str(max_kg)})
 
 
+class BonusConfigView(APIView):
+    """GET/PATCH single bonus config (bonus_percent). Admin only."""
+
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        config = BonusConfig.objects.first()
+        if not config:
+            config = BonusConfig.objects.create(bonus_percent=Decimal('0'))
+        return Response(BonusConfigSerializer(config).data)
+
+    def patch(self, request):
+        config = BonusConfig.objects.first()
+        if not config:
+            config = BonusConfig.objects.create(bonus_percent=Decimal('0'))
+        serializer = BonusConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class InstitutionBonusViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """List and manage institution bonuses. Admin only. PATCH: set awarded_amount and/or confirm (status=confirmed)."""
+
+    permission_classes = [IsAuthenticated, IsAdministrator]
+    serializer_class = InstitutionBonusSerializer
+    queryset = InstitutionBonus.objects.select_related(
+        'institution', 'collection_request', 'confirmed_by'
+    ).order_by('-created_at')
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        status = self.request.query_params.get('status')
+        if status:
+            qs = qs.filter(status=status)
+        institution_id = self.request.query_params.get('institution')
+        if institution_id:
+            qs = qs.filter(institution_id=institution_id)
+        return qs
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        if instance.status == InstitutionBonus.Status.CONFIRMED and not instance.confirmed_at:
+            instance.confirmed_at = tz.now()
+            instance.confirmed_by = self.request.user
+            amount = instance.awarded_amount or instance.calculated_amount or 0
+            if amount > 0:
+                from django.db.models import F
+                InstitutionProfile.objects.filter(pk=instance.institution_id).update(
+                    bonus_balance=F('bonus_balance') + amount
+                )
+            instance.save(update_fields=['confirmed_at', 'confirmed_by'])
+
+
 class CurrentUserView(APIView):
     """Returns current user info and role-specific profile."""
 
@@ -382,6 +452,150 @@ class CurrentUserView(APIView):
         else:
             data['profile'] = None
         return Response(data)
+
+
+class InstitutionPointsView(APIView):
+    """GET balance and history (accruals + expenses) for current institution. Amount — date — request/order."""
+
+    permission_classes = [IsAuthenticated, IsInstitutionUser]
+
+    def get(self, request):
+        inst = request.user.institution_profile
+        balance = inst.bonus_balance
+        accruals = InstitutionBonus.objects.filter(
+            institution=inst, status=InstitutionBonus.Status.CONFIRMED
+        ).select_related('collection_request').order_by('-confirmed_at')
+        expenses = PointsOrder.objects.filter(institution=inst).order_by('-created_at')
+        history = []
+        for b in accruals:
+            amt = b.awarded_amount or b.calculated_amount
+            ref = b.collection_request.request_number or f'Заявка {b.collection_request_id}'
+            history.append({
+                'type': 'accrual',
+                'amount': str(amt),
+                'date': (b.confirmed_at or b.created_at).isoformat() if (b.confirmed_at or b.created_at) else None,
+                'reference': ref,
+            })
+        for o in expenses:
+            history.append({
+                'type': 'expense',
+                'amount': f'-{o.total_points}',
+                'date': o.created_at.isoformat() if o.created_at else None,
+                'reference': f'Заказ #{o.id}',
+            })
+        history.sort(key=lambda x: x['date'] or '', reverse=True)
+        return Response({
+            'balance': str(balance),
+            'history': history[:100],
+        })
+
+
+class ProductViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Products for points catalog. Institution: list active only. Admin: full CRUD."""
+
+    serializer_class = ProductSerializer
+    queryset = Product.objects.all()
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), IsAdministrator()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        qs = Product.objects.all()
+        if getattr(self.request.user, 'role', None) != 'admin':
+            qs = qs.filter(is_active=True)
+        return qs.order_by('name')
+
+
+class PointsOrderViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Orders paid with points. Institution: create + list own. Admin: list all + PATCH status."""
+
+    serializer_class = PointsOrderSerializer
+
+    def get_permissions(self):
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if self.action in ('partial_update', 'update'):
+            return PointsOrderStatusSerializer
+        if self.action == 'create':
+            return PointsOrderCreateSerializer
+        return PointsOrderSerializer
+
+    def get_queryset(self):
+        qs = PointsOrder.objects.prefetch_related('lines__product').select_related('institution')
+        if getattr(self.request.user, 'role', None) != 'admin':
+            qs = qs.filter(institution__user=self.request.user)
+        return qs.order_by('-created_at')
+
+    def perform_update(self, serializer):
+        if getattr(self.request.user, 'role', None) != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Только администратор может менять статус заказа.')
+        serializer.save()
+
+    def create(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) != 'institution':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Только организация может оформлять заказы на баллы.')
+        inst = request.user.institution_profile
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        items = data['items']
+        total = Decimal('0')
+        line_data = []
+        for item in items:
+            try:
+                product = Product.objects.get(pk=item['product_id'], is_active=True)
+            except Product.DoesNotExist:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'items': f'Товар id={item["product_id"]} не найден или не активен.'})
+            qty = item['quantity']
+            price = product.price_in_points
+            total += price * qty
+            line_data.append({'product': product, 'quantity': qty, 'price_at_order': price})
+        if total > inst.bonus_balance:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({
+                'detail': f'Недостаточно баллов. Баланс: {inst.bonus_balance}, нужно: {total}.',
+            })
+        from django.db import transaction
+        with transaction.atomic():
+            order = PointsOrder.objects.create(
+                institution=inst,
+                status=PointsOrder.Status.PENDING,
+                recipient_name=data['recipient_name'],
+                recipient_phone=data['recipient_phone'],
+                address=data['address'],
+                total_points=total,
+            )
+            for ld in line_data:
+                PointsOrderLine.objects.create(
+                    order=order,
+                    product=ld['product'],
+                    quantity=ld['quantity'],
+                    price_at_order=ld['price_at_order'],
+                )
+            InstitutionProfile.objects.filter(pk=inst.pk).update(bonus_balance=F('bonus_balance') - total)
+        return Response(
+            PointsOrderSerializer(order).data,
+            status=201,
+        )
 
 
 def _parse_date_param(value):

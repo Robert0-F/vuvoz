@@ -18,6 +18,9 @@
           <v-tab value="companies">Компании</v-tab>
           <v-tab value="institutions">Организации</v-tab>
           <v-tab value="requests">Заявки</v-tab>
+          <v-tab value="bonuses">Бонусы</v-tab>
+          <v-tab value="products">Товары (баллы)</v-tab>
+          <v-tab value="points-orders">Заказы на баллы</v-tab>
         </v-tabs>
 
         <v-window v-model="activeTab">
@@ -709,6 +712,273 @@
               </v-card>
             </v-dialog>
           </v-window-item>
+
+          <!-- Bonuses -->
+          <v-window-item value="bonuses">
+            <v-card class="rounded-lg elevation-1 mb-4">
+              <v-card-title class="d-flex align-center">
+                <v-icon class="mr-2">mdi-percent</v-icon>
+                Процент бонуса от суммы заявки
+              </v-card-title>
+              <v-card-text>
+                <v-row align="center">
+                  <v-col cols="12" sm="4" md="3">
+                    <v-text-field
+                      v-model.number="bonusConfigForm.bonus_percent"
+                      label="Процент (%)"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                    />
+                  </v-col>
+                  <v-col cols="12" sm="4">
+                    <v-btn color="primary" :loading="savingBonusConfig" @click="saveBonusConfig">
+                      Сохранить
+                    </v-btn>
+                  </v-col>
+                </v-row>
+                <p class="text-caption text-medium-emphasis mt-2">
+                  Бонус начисляется организациям после завершения заявки. Сумма = стоимость заявки × процент. Администратор подтверждает или меняет сумму и начисляет бонус.
+                </p>
+              </v-card-text>
+            </v-card>
+            <v-card class="rounded-lg" elevation="1">
+              <v-card-title class="d-flex align-center flex-wrap ga-2">
+                Бонусы организаций
+                <v-select
+                  v-model="bonusStatusFilter"
+                  :items="bonusStatusOptions"
+                  density="compact"
+                  hide-details
+                  label="Статус"
+                  variant="outlined"
+                  style="max-width: 180px"
+                />
+                <v-spacer />
+                <v-btn variant="tonal" size="small" @click="fetchInstitutionBonuses">Обновить</v-btn>
+              </v-card-title>
+              <v-divider />
+              <v-data-table
+                :headers="bonusHeaders"
+                :items="filteredBonuses"
+                :loading="loadingBonuses"
+                item-value="id"
+              >
+                <template #item.order_value="{ item }">
+                  {{ item.order_value != null ? `${item.order_value} (стоимость заявки)` : '—' }}
+                </template>
+                <template #item.calculated_amount="{ item }">
+                  {{ item.calculated_amount }} баллов
+                </template>
+                <template #item.awarded_amount="{ item }">
+                  {{ item.awarded_amount != null ? `${item.awarded_amount} баллов` : '—' }}
+                </template>
+                <template #item.status="{ item }">
+                  <v-chip :color="item.status === 'confirmed' ? 'success' : 'warning'" size="small">
+                    {{ item.status === 'confirmed' ? 'Начислен' : 'Ожидает' }}
+                  </v-chip>
+                </template>
+                <template #item.actions="{ item }">
+                  <v-btn
+                    v-if="item.status === 'pending'"
+                    size="small"
+                    variant="text"
+                    color="primary"
+                    @click="openBonusAwardDialog(item)"
+                  >
+                    Подтвердить / изменить
+                  </v-btn>
+                  <span v-else class="text-medium-emphasis">—</span>
+                </template>
+              </v-data-table>
+            </v-card>
+
+            <v-dialog v-model="bonusAwardDialog" max-width="480" persistent>
+              <v-card v-if="editingBonus">
+                <v-card-title>Начисление бонуса</v-card-title>
+                <v-card-text>
+                  <p class="text-body-2 mb-3">
+                    Организация: <strong>{{ editingBonus.institution_name }}</strong><br>
+                    Заявка: {{ editingBonus.request_number }}<br>
+                    Стоимость заявки: {{ editingBonus.order_value ?? '—' }} (для расчёта)<br>
+                    Рассчитанная сумма бонуса: {{ editingBonus.calculated_amount }} баллов
+                  </p>
+                  <v-text-field
+                    v-model.number="bonusAwardForm.awarded_amount"
+                    label="Сумма к начислению (баллы)"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    variant="outlined"
+                  />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="bonusAwardDialog = false">Отмена</v-btn>
+                  <v-btn color="primary" :loading="savingBonusAward" @click="confirmBonusAward">
+                    Начислить бонус
+                  </v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+          </v-window-item>
+
+          <!-- Products (points catalog) -->
+          <v-window-item value="products">
+            <v-card class="rounded-lg" elevation="1">
+              <v-card-title class="d-flex align-center">
+                Товары за баллы (каталог для организаций)
+                <v-spacer />
+                <v-btn color="primary" prepend-icon="mdi-plus" @click="openProductDialog()">Добавить товар</v-btn>
+              </v-card-title>
+              <v-divider />
+              <v-data-table
+                :headers="productHeaders"
+                :items="products"
+                :loading="loadingProducts"
+                item-value="id"
+              >
+                <template #item.image_url="{ item }">
+                <v-img v-if="item.image_url" :src="item.image_url" width="40" height="40" class="rounded" cover />
+                <span v-else class="text-medium-emphasis">—</span>
+              </template>
+                <template #item.price_in_points="{ item }">{{ item.price_in_points }} баллов</template>
+                <template #item.is_active="{ item }">
+                  <v-chip :color="item.is_active ? 'success' : 'default'" size="small">{{ item.is_active ? 'Да' : 'Нет' }}</v-chip>
+                </template>
+                <template #item.actions="{ item }">
+                  <v-btn size="small" variant="text" @click="openProductDialog(item)">Изменить</v-btn>
+                  <v-btn size="small" variant="text" color="error" @click="confirmDeleteProduct(item)">Удалить</v-btn>
+                </template>
+              </v-data-table>
+            </v-card>
+            <v-dialog v-model="productDialog" max-width="500" persistent>
+              <v-card>
+                <v-card-title>{{ editingProduct ? 'Редактировать товар' : 'Новый товар' }}</v-card-title>
+                <v-card-text>
+                  <v-text-field v-model="productForm.name" label="Название" variant="outlined" class="mb-3" />
+                  <v-textarea v-model="productForm.description" label="Описание" variant="outlined" class="mb-3" rows="3" />
+                  <v-file-input
+                    v-model="productForm.imageFile"
+                    label="Фото товара"
+                    variant="outlined"
+                    class="mb-3"
+                    accept="image/*"
+                    prepend-icon=""
+                    prepend-inner-icon="mdi-camera"
+                    clearable
+                    show-size
+                  />
+                  <v-img v-if="productForm.imagePreview" :src="productForm.imagePreview" max-height="120" class="mb-3 rounded" />
+                  <v-text-field v-model.number="productForm.price_in_points" label="Цена (баллы)" type="number" min="0" step="0.01" variant="outlined" class="mb-3" />
+                  <v-checkbox v-model="productForm.is_active" label="Активен (виден в каталоге)" />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="productDialog = false">Отмена</v-btn>
+                  <v-btn color="primary" :loading="savingProduct" @click="saveProduct">Сохранить</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+            <v-dialog v-model="deleteProductDialog" max-width="400" persistent>
+              <v-card>
+                <v-card-title>Удалить товар?</v-card-title>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="deleteProductDialog = false">Отмена</v-btn>
+                  <v-btn color="error" :loading="deletingProduct" @click="doDeleteProduct">Удалить</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+          </v-window-item>
+
+          <!-- Points orders (bonus orders) -->
+          <v-window-item value="points-orders">
+            <v-card class="rounded-lg" elevation="1">
+              <v-card-title class="d-flex align-center flex-wrap ga-2">
+                Заказы на баллы
+                <v-select
+                  v-model="pointsOrderStatusFilter"
+                  :items="pointsOrderStatusOptions"
+                  density="compact"
+                  hide-details
+                  label="Статус"
+                  variant="outlined"
+                  style="max-width: 160px"
+                />
+                <v-spacer />
+                <v-btn variant="tonal" size="small" @click="loadPointsOrders">Обновить</v-btn>
+              </v-card-title>
+              <v-divider />
+              <v-data-table
+                :headers="pointsOrderHeaders"
+                :items="filteredPointsOrders"
+                :loading="loadingPointsOrders"
+                item-value="id"
+              >
+                <template #item.total_points="{ item }">{{ item.total_points }} баллов</template>
+                <template #item.status="{ item }">
+                  <v-chip :color="pointsOrderStatusColor(item.status)" size="small">{{ pointsOrderStatusLabel(item.status) }}</v-chip>
+                </template>
+                <template #item.actions="{ item }">
+                  <v-btn size="small" variant="text" @click="openPointsOrderDetail(item)">Просмотр</v-btn>
+                </template>
+              </v-data-table>
+            </v-card>
+            <v-dialog v-model="pointsOrderDetailDialog" max-width="600" persistent>
+              <v-card v-if="selectedPointsOrder">
+                <v-card-title class="d-flex align-center">
+                  Заказ #{{ selectedPointsOrder.id }}
+                  <v-spacer />
+                  <v-btn icon variant="text" @click="pointsOrderDetailDialog = false">×</v-btn>
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <p class="text-subtitle-2 mb-1">Организация</p>
+                  <p class="mb-3">{{ selectedPointsOrder.institution_name }}</p>
+                  <p class="text-subtitle-2 mb-1">Получатель</p>
+                  <p class="mb-1">{{ selectedPointsOrder.recipient_name }}, {{ selectedPointsOrder.recipient_phone }}</p>
+                  <p class="mb-3 text-body-2">{{ selectedPointsOrder.address }}</p>
+                  <p class="text-subtitle-2 mb-1">Состав заказа (корзина)</p>
+                  <v-table density="compact" class="mb-3">
+                    <thead>
+                      <tr>
+                        <th>Товар</th>
+                        <th>Кол-во</th>
+                        <th>Цена (баллы)</th>
+                        <th>Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="line in selectedPointsOrder.lines" :key="line.id">
+                        <td>{{ line.product_name }}</td>
+                        <td>{{ line.quantity }}</td>
+                        <td>{{ line.price_at_order }}</td>
+                        <td>{{ (parseFloat(line.price_at_order) * line.quantity).toFixed(2) }}</td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                  <p class="text-body-1 font-weight-bold">Итого: {{ selectedPointsOrder.total_points }} баллов</p>
+                  <v-select
+                    v-model="pointsOrderStatusEdit"
+                    :items="pointsOrderStatusOptions"
+                    label="Статус заказа"
+                    variant="outlined"
+                    class="mt-3"
+                  />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="pointsOrderDetailDialog = false">Закрыть</v-btn>
+                  <v-btn color="primary" :loading="savingPointsOrderStatus" @click="savePointsOrderStatus">Сохранить статус</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+          </v-window-item>
         </v-window>
       </v-container>
     </v-main>
@@ -802,6 +1072,9 @@ const companyCardDialog = ref(false)
 const companyCard = ref<CompanyProfile | null>(null)
 const companyFormErrors = ref<Record<string, string[]>>({})
 const snackbar = ref({ show: false, text: '', color: 'error' })
+function showSnackbar(text: string, color: 'success' | 'error' | 'info') {
+  snackbar.value = { show: true, text, color }
+}
 
 const institutionDialog = ref(false)
 const editingInstitution = ref<InstitutionProfile | null>(null)
@@ -891,6 +1164,127 @@ const institutionCard = ref<InstitutionProfile | null>(null)
 const requestCardDialog = ref(false)
 const requestCard = ref<CollectionRequest | null>(null)
 
+// Bonuses
+interface InstitutionBonusItem {
+  id: number
+  collection_request: number
+  institution: number
+  institution_name: string
+  request_number: string
+  order_value: string | null
+  calculated_amount: string
+  awarded_amount: string | null
+  status: 'pending' | 'confirmed'
+  confirmed_at: string | null
+  confirmed_by: number | null
+  created_at: string
+}
+const bonusConfigForm = reactive({ bonus_percent: 0 })
+const savingBonusConfig = ref(false)
+const bonusStatusFilter = ref('all')
+const bonusStatusOptions = [
+  { title: 'Все', value: 'all' },
+  { title: 'Ожидают подтверждения', value: 'pending' },
+  { title: 'Начислены', value: 'confirmed' },
+]
+const bonusHeaders = [
+  { title: 'Организация', key: 'institution_name' },
+  { title: 'Заявка', key: 'request_number', width: '140' },
+  { title: 'Стоимость заявки', key: 'order_value' },
+  { title: 'Рассчитано', key: 'calculated_amount' },
+  { title: 'Начислено', key: 'awarded_amount' },
+  { title: 'Статус', key: 'status' },
+  { title: 'Действия', key: 'actions', sortable: false, width: '160' },
+]
+const institutionBonuses = ref<InstitutionBonusItem[]>([])
+const loadingBonuses = ref(false)
+const bonusAwardDialog = ref(false)
+const editingBonus = ref<InstitutionBonusItem | null>(null)
+const bonusAwardForm = reactive({ awarded_amount: 0 })
+const savingBonusAward = ref(false)
+
+// Products (points catalog)
+interface ProductItem {
+  id: number
+  name: string
+  description: string
+  price_in_points: string
+  is_active: boolean
+  image_url?: string | null
+  created_at: string
+}
+const products = ref<ProductItem[]>([])
+const loadingProducts = ref(false)
+const productDialog = ref(false)
+const editingProduct = ref<ProductItem | null>(null)
+const savingProduct = ref(false)
+const deleteProductDialog = ref(false)
+const productToDelete = ref<ProductItem | null>(null)
+const deletingProduct = ref(false)
+const productHeaders = [
+  { title: 'Фото', key: 'image_url', sortable: false, width: '70' },
+  { title: 'Название', key: 'name' },
+  { title: 'Цена', key: 'price_in_points' },
+  { title: 'Активен', key: 'is_active', width: '100' },
+  { title: 'Действия', key: 'actions', sortable: false, width: '180' },
+]
+const productForm = reactive({ name: '', description: '', price_in_points: 0, is_active: true, imageFile: null as File[] | null, imagePreview: '' as string })
+
+// Points orders (admin)
+interface PointsOrderLineItem {
+  id: number
+  product: number
+  product_name: string
+  quantity: number
+  price_at_order: string
+}
+interface PointsOrderItem {
+  id: number
+  institution: number
+  institution_name: string
+  status: string
+  recipient_name: string
+  recipient_phone: string
+  address: string
+  total_points: string
+  created_at: string
+  lines: PointsOrderLineItem[]
+}
+const pointsOrders = ref<PointsOrderItem[]>([])
+const loadingPointsOrders = ref(false)
+const pointsOrderStatusFilter = ref('all')
+const pointsOrderStatusOptions = [
+  { title: 'Все', value: 'all' },
+  { title: 'Ожидает', value: 'pending' },
+  { title: 'Принят', value: 'accepted' },
+  { title: 'Доставлен', value: 'completed' },
+  { title: 'Отменён', value: 'cancelled' },
+]
+const pointsOrderHeaders = [
+  { title: 'ID', key: 'id', width: '70' },
+  { title: 'Организация', key: 'institution_name' },
+  { title: 'Получатель', key: 'recipient_name' },
+  { title: 'Телефон', key: 'recipient_phone', width: '130' },
+  { title: 'Сумма', key: 'total_points', width: '100' },
+  { title: 'Статус', key: 'status', width: '110' },
+  { title: 'Дата', key: 'created_at', width: '110' },
+  { title: 'Действия', key: 'actions', sortable: false, width: '100' },
+]
+const selectedPointsOrder = ref<PointsOrderItem | null>(null)
+const pointsOrderDetailDialog = ref(false)
+const pointsOrderStatusEdit = ref('pending')
+const savingPointsOrderStatus = ref(false)
+
+const filteredPointsOrders = computed(() => {
+  if (pointsOrderStatusFilter.value === 'all') return pointsOrders.value
+  return pointsOrders.value.filter((o) => o.status === pointsOrderStatusFilter.value)
+})
+
+const filteredBonuses = computed(() => {
+  if (bonusStatusFilter.value === 'all') return institutionBonuses.value
+  return institutionBonuses.value.filter((b) => b.status === bonusStatusFilter.value)
+})
+
 const filteredInstitutions = computed(() => {
   const q = institutionSearchName.value?.trim().toLowerCase() || ''
   if (!q) return institutions.value
@@ -970,6 +1364,199 @@ async function loadRequests() {
     adminRequests.value = data
   } finally {
     loadingRequests.value = false
+  }
+}
+
+async function fetchBonusConfig() {
+  try {
+    const { data } = await api.get<{ bonus_percent: string }>('/bonus-config/')
+    bonusConfigForm.bonus_percent = parseFloat(data.bonus_percent) || 0
+  } catch {
+    bonusConfigForm.bonus_percent = 0
+  }
+}
+
+async function saveBonusConfig() {
+  savingBonusConfig.value = true
+  try {
+    await api.patch('/bonus-config/', { bonus_percent: bonusConfigForm.bonus_percent })
+    showSnackbar('Процент бонуса сохранён', 'success')
+  } catch (e: unknown) {
+    showSnackbar((e as { response?: { data?: { bonus_percent?: string[] } } })?.response?.data?.bonus_percent?.[0] || 'Ошибка сохранения', 'error')
+  } finally {
+    savingBonusConfig.value = false
+  }
+}
+
+async function fetchInstitutionBonuses() {
+  loadingBonuses.value = true
+  try {
+    const params = bonusStatusFilter.value !== 'all' ? { status: bonusStatusFilter.value } : {}
+    const { data } = await api.get<InstitutionBonusItem[]>('/institution-bonuses/', { params })
+    institutionBonuses.value = Array.isArray(data) ? data : []
+  } catch {
+    institutionBonuses.value = []
+  } finally {
+    loadingBonuses.value = false
+  }
+}
+
+function openBonusAwardDialog(item: InstitutionBonusItem) {
+  editingBonus.value = item
+  bonusAwardForm.awarded_amount = parseFloat(item.awarded_amount ?? item.calculated_amount) || 0
+  bonusAwardDialog.value = true
+}
+
+async function confirmBonusAward() {
+  if (!editingBonus.value) return
+  savingBonusAward.value = true
+  try {
+    await api.patch(`/institution-bonuses/${editingBonus.value.id}/`, {
+      awarded_amount: bonusAwardForm.awarded_amount,
+      status: 'confirmed',
+    })
+    showSnackbar('Бонус начислен', 'success')
+    bonusAwardDialog.value = false
+    editingBonus.value = null
+    await fetchInstitutionBonuses()
+  } catch (e: unknown) {
+    showSnackbar((e as { response?: { data?: Record<string, unknown> } })?.response?.data ? JSON.stringify((e as { response: { data: Record<string, unknown> } }).response.data) : 'Ошибка', 'error')
+  } finally {
+    savingBonusAward.value = false
+  }
+}
+
+async function loadProducts() {
+  loadingProducts.value = true
+  try {
+    const { data } = await api.get<ProductItem[]>('/products/')
+    products.value = data
+  } catch {
+    products.value = []
+  } finally {
+    loadingProducts.value = false
+  }
+}
+
+function openProductDialog(item?: ProductItem) {
+  editingProduct.value = item ?? null
+  productForm.imageFile = null
+  productForm.imagePreview = ''
+  if (item) {
+    productForm.name = item.name
+    productForm.description = item.description || ''
+    productForm.price_in_points = parseFloat(item.price_in_points) || 0
+    productForm.is_active = item.is_active
+    if (item.image_url) productForm.imagePreview = item.image_url
+  } else {
+    productForm.name = ''
+    productForm.description = ''
+    productForm.price_in_points = 0
+    productForm.is_active = true
+  }
+  productDialog.value = true
+}
+
+async function saveProduct() {
+  savingProduct.value = true
+  try {
+    const file = productForm.imageFile && productForm.imageFile.length ? productForm.imageFile[0] : null
+    if (file) {
+      const formData = new FormData()
+      formData.append('name', productForm.name)
+      formData.append('description', productForm.description)
+      formData.append('price_in_points', String(productForm.price_in_points))
+      formData.append('is_active', String(productForm.is_active))
+      formData.append('image', file)
+      // Do not set Content-Type: axios must set multipart/form-data with boundary so the server receives the file
+      if (editingProduct.value) {
+        await api.patch(`/products/${editingProduct.value.id}/`, formData)
+      } else {
+        await api.post('/products/', formData)
+      }
+    } else {
+      const payload = {
+        name: productForm.name,
+        description: productForm.description,
+        price_in_points: productForm.price_in_points,
+        is_active: productForm.is_active,
+      }
+      if (editingProduct.value) {
+        await api.patch(`/products/${editingProduct.value.id}/`, payload)
+      } else {
+        await api.post('/products/', payload)
+      }
+    }
+    showSnackbar('Сохранено', 'success')
+    productDialog.value = false
+    await loadProducts()
+  } catch {
+    showSnackbar('Ошибка сохранения', 'error')
+  } finally {
+    savingProduct.value = false
+  }
+}
+
+function confirmDeleteProduct(item: ProductItem) {
+  productToDelete.value = item
+  deleteProductDialog.value = true
+}
+
+async function doDeleteProduct() {
+  if (!productToDelete.value) return
+  deletingProduct.value = true
+  try {
+    await api.delete(`/products/${productToDelete.value.id}/`)
+    showSnackbar('Товар удалён', 'success')
+    deleteProductDialog.value = false
+    productToDelete.value = null
+    await loadProducts()
+  } catch {
+    showSnackbar('Ошибка удаления', 'error')
+  } finally {
+    deletingProduct.value = false
+  }
+}
+
+async function loadPointsOrders() {
+  loadingPointsOrders.value = true
+  try {
+    const { data } = await api.get<PointsOrderItem[]>('/points-orders/')
+    pointsOrders.value = Array.isArray(data) ? data : []
+  } catch {
+    pointsOrders.value = []
+  } finally {
+    loadingPointsOrders.value = false
+  }
+}
+
+function openPointsOrderDetail(order: PointsOrderItem) {
+  selectedPointsOrder.value = order
+  pointsOrderStatusEdit.value = order.status
+  pointsOrderDetailDialog.value = true
+}
+
+function pointsOrderStatusLabel(s: string) {
+  const m: Record<string, string> = { pending: 'Ожидает', accepted: 'Принят', completed: 'Доставлен', cancelled: 'Отменён' }
+  return m[s] || s
+}
+
+function pointsOrderStatusColor(s: string) {
+  const m: Record<string, string> = { pending: 'warning', accepted: 'info', completed: 'success', cancelled: 'default' }
+  return m[s] || 'default'
+}
+
+async function savePointsOrderStatus() {
+  if (!selectedPointsOrder.value) return
+  savingPointsOrderStatus.value = true
+  try {
+    await api.patch(`/points-orders/${selectedPointsOrder.value.id}/`, { status: pointsOrderStatusEdit.value })
+    selectedPointsOrder.value.status = pointsOrderStatusEdit.value
+    showSnackbar('Статус сохранён', 'success')
+  } catch {
+    showSnackbar('Ошибка сохранения статуса', 'error')
+  } finally {
+    savingPointsOrderStatus.value = false
   }
 }
 
@@ -1367,6 +1954,18 @@ watch(activeTab, (tab) => {
   if (tab === 'companies') loadCompanies()
   if (tab === 'institutions') loadInstitutions()
   if (tab === 'requests') loadRequests()
+  if (tab === 'bonuses') {
+    fetchBonusConfig()
+    fetchInstitutionBonuses()
+  }
+  if (tab === 'products') loadProducts()
+  if (tab === 'points-orders') loadPointsOrders()
+})
+
+watch(() => productForm.imageFile, (files) => {
+  if (files && files.length && files[0] instanceof File) {
+    productForm.imagePreview = URL.createObjectURL(files[0])
+  }
 })
 
 onMounted(() => {

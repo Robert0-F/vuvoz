@@ -256,6 +256,45 @@ Query params: `start_date`, `end_date` (YYYY-MM-DD).
 
 ---
 
+### Бонусы организаций
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/bonus-config/` | Admin | Текущий процент бонуса |
+| PATCH | `/api/bonus-config/` | Admin | Изменить процент бонуса (body: `{ "bonus_percent": 1.5 }`) |
+| GET | `/api/institution-bonuses/` | Admin | Список бонусов (query: `?status=pending` или `?status=confirmed`) |
+| GET | `/api/institution-bonuses/<id>/` | Admin | Один бонус |
+| PATCH | `/api/institution-bonuses/<id>/` | Admin | Изменить сумму к начислению и/или подтвердить (body: `{ "awarded_amount": 100, "status": "confirmed" }`) |
+
+Бонус создаётся автоматически при переходе заявки в статус «Завершена». Сумма по умолчанию = стоимость заявки × процент. Администратор подтверждает или меняет сумму и выставляет статус `confirmed`. Все суммы бонусов — в **зелёных баллах** (не рубли).
+
+---
+
+### Зелёные баллы (организация)
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/me/points/` | Institution | Баланс баллов и история (начисления и траты): `{ "balance": "0", "history": [{ "type": "accrual"\|"expense", "amount": "...", "date": "...", "reference": "Заявка REQ-..." \| "Заказ #1" }] }` |
+
+### Товары за баллы
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/products/` | Auth | Список товаров (для организаций — только активные). |
+| POST | `/api/products/` | Admin | Создать товар. JSON: `{ name, description, price_in_points, is_active }`. С фото: `multipart/form-data`, поле `image`. |
+| GET/PATCH/DELETE | `/api/products/<id>/` | Admin | Просмотр, изменение, удаление. PATCH с фото: `multipart/form-data`. |
+
+Ответ продукта: `id`, `name`, `description`, `image` (путь), `image_url` (абсолютный URL), `price_in_points`, `is_active`, `created_at`.
+
+### Заказы за баллы
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/points-orders/` | Institution (свои) / Admin (все) | Список заказов. |
+| POST | `/api/points-orders/` | Institution | Создать заказ: `{ "recipient_name", "recipient_phone", "address", "items": [{ "product_id": int, "quantity": int }] }`. Списываются баллы с баланса организации. |
+
+---
+
 ## Rate limiting
 
 По умолчанию ограничения не заданы. Для production рекомендуется настроить throttling (например, через `DEFAULT_THROTTLE_CLASSES` в DRF).

@@ -2,13 +2,18 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import (
+    BonusConfig,
     CollectionRequest,
     CompanyProfile,
     CustomUser,
+    InstitutionBonus,
     InAppNotification,
     InstitutionProfile,
     NewsArticle,
+    PointsOrder,
+    PointsOrderLine,
     PriceList,
+    Product,
     RequestWeightLimit,
 )
 
@@ -134,3 +139,44 @@ class InAppNotificationAdmin(admin.ModelAdmin):
     search_fields = ('title', 'message')
     raw_id_fields = ('user',)
     readonly_fields = ('created_at',)
+
+
+@admin.register(BonusConfig)
+class BonusConfigAdmin(admin.ModelAdmin):
+    list_display = ('id', 'bonus_percent')
+
+
+@admin.register(InstitutionBonus)
+class InstitutionBonusAdmin(admin.ModelAdmin):
+    list_display = ('id', 'institution', 'collection_request', 'calculated_amount', 'awarded_amount', 'status', 'confirmed_at', 'confirmed_by')
+    list_filter = ('status', 'created_at')
+    search_fields = ('institution__institution_name', 'collection_request__request_number')
+    raw_id_fields = ('institution', 'collection_request', 'confirmed_by')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'price_in_points', 'is_active', 'image', 'created_at')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'description')
+    readonly_fields = ('created_at',)
+    fieldsets = (
+        (None, {'fields': ('name', 'description', 'price_in_points', 'is_active')}),
+        ('Фото товара', {'fields': ('image',)}),
+    )
+
+
+@admin.register(PointsOrder)
+class PointsOrderAdmin(admin.ModelAdmin):
+    list_display = ('id', 'institution', 'recipient_name', 'total_points', 'status', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('recipient_name', 'recipient_phone', 'address')
+    raw_id_fields = ('institution',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(PointsOrderLine)
+class PointsOrderLineAdmin(admin.ModelAdmin):
+    list_display = ('id', 'order', 'product', 'quantity', 'price_at_order')
+    raw_id_fields = ('order', 'product')

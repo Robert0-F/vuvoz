@@ -12,6 +12,7 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -91,9 +92,11 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media files (uploads)
-MEDIA_URL = 'media/'
+# Media files (uploads). Use leading slash so build_absolute_uri() and img src resolve correctly.
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+# Base URL for building absolute URLs (e.g. image_url in API). In dev, frontend is often on :5173 so we default to :8000 so image URLs load.
+BASE_URL = os.environ.get('BASE_URL', '').rstrip('/') or ('http://127.0.0.1:8000' if DEBUG else None)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

@@ -6,7 +6,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver, Signal
 from django.conf import settings
 
-from .models import CollectionRequest, InAppNotification, InstitutionProfile
+from .models import BonusConfig, CollectionRequest, InstitutionBonus, InAppNotification, InstitutionProfile
 
 # Custom signal: institution created with credentials (sent from serializer)
 institution_created = Signal()
@@ -103,14 +103,40 @@ def _notify_institution_status_change(instance, previous_status):
     )
 
 
+def _create_bonus_if_completed(instance):
+    """Create a pending InstitutionBonus when request is completed (if not already created)."""
+    if instance.status != CollectionRequest.Status.COMPLETED:
+        return
+    if hasattr(instance, 'institution_bonus') and instance.institution_bonus:
+        return
+    percent = BonusConfig.get_percent()
+    if percent <= 0:
+        return
+    order_value = instance.actual_value or instance.estimated_value or 0
+    if order_value <= 0:
+        return
+    from decimal import Decimal
+    calculated = (order_value * percent / Decimal('100')).quantize(Decimal('0.01'))
+    InstitutionBonus.objects.get_or_create(
+        collection_request=instance,
+        defaults={
+            'institution': instance.institution,
+            'calculated_amount': calculated,
+            'awarded_amount': calculated,
+            'status': InstitutionBonus.Status.PENDING,
+        },
+    )
+
+
 @receiver(post_save, sender=CollectionRequest)
 def on_collection_request_save(sender, instance, created, **kwargs):
-    """New request: notify company. Status change: notify institution."""
+    """New request: notify company. Status change: notify institution. Completed: create pending bonus."""
     if created:
         _notify_company_new_request(instance)
+        _create_bonus_if_completed(instance)
         return
     previous = getattr(instance, '_previous_status', None)
-    if previous == instance.status:
-        return
-    if instance.status in ('accepted', 'completed'):
+    if previous != instance.status and instance.status in ('accepted', 'completed'):
         _notify_institution_status_change(instance, previous)
+    if instance.status == CollectionRequest.Status.COMPLETED:
+        _create_bonus_if_completed(instance)
