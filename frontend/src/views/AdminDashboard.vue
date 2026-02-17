@@ -17,7 +17,9 @@
           <v-tab value="news">Новости</v-tab>
           <v-tab value="companies">Компании</v-tab>
           <v-tab value="institutions">Организации</v-tab>
+          <v-tab value="registration-requests">Заявки на регистрацию</v-tab>
           <v-tab value="requests">Заявки</v-tab>
+          <v-tab value="statistics">Статистика</v-tab>
           <v-tab value="bonuses">Бонусы</v-tab>
           <v-tab value="products">Товары (баллы)</v-tab>
           <v-tab value="points-orders">Заказы на баллы</v-tab>
@@ -624,6 +626,33 @@
             </v-dialog>
           </v-window-item>
 
+          <!-- Registration requests (from homepage) -->
+          <v-window-item value="registration-requests">
+            <v-card class="rounded-lg" elevation="1">
+              <v-card-title class="d-flex align-center">
+                Заявки на регистрацию учреждений
+                <v-spacer />
+                <v-btn variant="outlined" size="small" :loading="loadingRegistrationRequests" @click="loadRegistrationRequests">
+                  Обновить
+                </v-btn>
+              </v-card-title>
+              <v-card-text class="text-body-2 text-medium-emphasis">
+                Заявки, оставленные через форму «Регистрация» на главной странице. Создайте организацию вручную в разделе «Организации» и привяжите к компании.
+              </v-card-text>
+              <v-divider />
+              <v-data-table
+                :headers="registrationRequestHeaders"
+                :items="registrationRequests"
+                :loading="loadingRegistrationRequests"
+                item-value="id"
+              >
+                <template #item.created_at="{ item }">
+                  {{ formatDate(item.created_at) }}
+                </template>
+              </v-data-table>
+            </v-card>
+          </v-window-item>
+
           <!-- Requests -->
           <v-window-item value="requests">
             <v-card class="rounded-lg" elevation="1">
@@ -711,6 +740,192 @@
                 </v-card-actions>
               </v-card>
             </v-dialog>
+          </v-window-item>
+
+          <!-- Statistics -->
+          <v-window-item value="statistics">
+            <div class="statistics-tab">
+              <v-card class="rounded-lg elevation-1 mb-4">
+                <v-card-title class="text-subtitle-1 font-weight-medium">Период и основа расчёта</v-card-title>
+                <v-card-text class="d-flex flex-wrap align-center gap-3">
+                  <v-select
+                    v-model="statsBasis"
+                    :items="statsBasisOptions"
+                    density="compact"
+                    hide-details
+                    label="Учитывать"
+                    variant="outlined"
+                    style="max-width: 260px"
+                  />
+                  <v-select
+                    v-model="statsPeriodPreset"
+                    :items="statsPeriodOptions"
+                    density="compact"
+                    hide-details
+                    label="Период"
+                    variant="outlined"
+                    style="max-width: 180px"
+                  />
+                  <v-text-field
+                    v-model="statsDateFrom"
+                    type="date"
+                    label="С"
+                    density="compact"
+                    hide-details
+                    variant="outlined"
+                    style="max-width: 160px"
+                  />
+                  <v-text-field
+                    v-model="statsDateTo"
+                    type="date"
+                    label="По"
+                    density="compact"
+                    hide-details
+                    variant="outlined"
+                    style="max-width: 160px"
+                  />
+                  <v-btn color="primary" :loading="loadingStats" @click="loadAdminStats">
+                    Применить
+                  </v-btn>
+                </v-card-text>
+                <v-card-text v-if="statsBasis === 'completed'" class="text-caption text-medium-emphasis pt-0">
+                  «По дате завершения» — только завершённые заявки, по дате фактического завершения. Если данных нет, проверьте, что у заявок выставлен статус «Завершён» и дата завершения.
+                </v-card-text>
+              </v-card>
+              <v-alert v-if="!loadingStats && adminStats && statsEmpty" type="info" variant="tonal" class="mb-4">
+                Нет данных за выбранный период. Попробуйте расширить период (например, «1 год») или выбрать «По дате создания заявки».
+              </v-alert>
+
+              <!-- 1) Submitted materials -->
+              <v-card class="rounded-lg elevation-1 mb-4">
+                <v-card-title class="d-flex align-center flex-wrap gap-2">
+                  <span>Объём сданных материалов (кг)</span>
+                  <v-select
+                    v-model="statsMaterialFilter"
+                    :items="statsMaterialFilterItems"
+                    density="compact"
+                    hide-details
+                    variant="outlined"
+                    style="max-width: 200px"
+                  />
+                  <v-spacer />
+                  <v-btn-toggle v-model="viewModeMaterials" mandatory density="compact">
+                    <v-btn value="table" size="small">Таблица</v-btn>
+                    <v-btn value="graph" size="small">График</v-btn>
+                  </v-btn-toggle>
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <template v-if="viewModeMaterials === 'table'">
+                    <v-data-table
+                      :headers="statsMaterialsHeaders"
+                      :items="filteredMaterials"
+                      :loading="loadingStats"
+                      item-value="material_type"
+                      class="elevation-0"
+                    >
+                      <template #item.total_kg="{ item }">{{ formatKg(item.total_kg) }}</template>
+                    </v-data-table>
+                  </template>
+                  <template v-else>
+                    <div class="chart-container" style="height: 280px;">
+                      <canvas ref="chartMaterialsRef"></canvas>
+                    </div>
+                  </template>
+                </v-card-text>
+              </v-card>
+
+              <!-- 2) Top organizations -->
+              <v-card class="rounded-lg elevation-1 mb-4">
+                <v-card-title class="d-flex align-center">
+                  <span>Топ организаций по объёму сдачи</span>
+                  <v-spacer />
+                  <v-btn-toggle v-model="viewModeTopOrg" mandatory density="compact">
+                    <v-btn value="table" size="small">Таблица</v-btn>
+                    <v-btn value="graph" size="small">График</v-btn>
+                  </v-btn-toggle>
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <template v-if="viewModeTopOrg === 'table'">
+                    <v-data-table
+                      :headers="statsTopOrgHeaders"
+                      :items="adminStats?.top_organizations ?? []"
+                      :loading="loadingStats"
+                      item-value="institution_id"
+                      class="elevation-0"
+                    >
+                      <template #item.total_kg="{ item }">{{ formatKg(item.total_kg) }}</template>
+                    </v-data-table>
+                  </template>
+                  <template v-else>
+                    <div class="chart-container" style="height: 320px;">
+                      <canvas ref="chartTopOrgRef"></canvas>
+                    </div>
+                  </template>
+                </v-card-text>
+              </v-card>
+
+              <!-- 3) Requests by status -->
+              <v-card class="rounded-lg elevation-1 mb-4">
+                <v-card-title class="d-flex align-center">
+                  <span>Заявки по статусам</span>
+                  <v-spacer />
+                  <v-btn-toggle v-model="viewModeStatus" mandatory density="compact">
+                    <v-btn value="table" size="small">Таблица</v-btn>
+                    <v-btn value="graph" size="small">График</v-btn>
+                  </v-btn-toggle>
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <template v-if="viewModeStatus === 'table'">
+                    <v-data-table
+                      :headers="statsStatusHeaders"
+                      :items="adminStats?.requests_by_status ?? []"
+                      :loading="loadingStats"
+                      item-value="status"
+                      class="elevation-0"
+                    />
+                  </template>
+                  <template v-else>
+                    <div class="chart-container" style="height: 260px;">
+                      <canvas ref="chartStatusRef"></canvas>
+                    </div>
+                  </template>
+                </v-card-text>
+              </v-card>
+
+              <!-- 4) Weight over time -->
+              <v-card class="rounded-lg elevation-1 mb-4">
+                <v-card-title class="d-flex align-center">
+                  <span>Динамика объёма по периодам</span>
+                  <v-spacer />
+                  <v-btn-toggle v-model="viewModeWeight" mandatory density="compact">
+                    <v-btn value="table" size="small">Таблица</v-btn>
+                    <v-btn value="graph" size="small">График</v-btn>
+                  </v-btn-toggle>
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <template v-if="viewModeWeight === 'table'">
+                    <v-data-table
+                      :headers="statsWeightOverTimeHeaders"
+                      :items="adminStats?.weight_over_time ?? []"
+                      :loading="loadingStats"
+                      item-value="date_start"
+                      class="elevation-0"
+                    >
+                      <template #item.total_kg="{ item }">{{ formatKg(item.total_kg) }}</template>
+                    </v-data-table>
+                  </template>
+                  <template v-else>
+                    <div class="chart-container" style="height: 280px;">
+                      <canvas ref="chartWeightRef"></canvas>
+                    </div>
+                  </template>
+                </v-card-text>
+              </v-card>
+            </div>
           </v-window-item>
 
           <!-- Bonuses -->
@@ -986,8 +1201,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import Chart from 'chart.js/auto'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
@@ -1163,6 +1379,103 @@ const institutionCardDialog = ref(false)
 const institutionCard = ref<InstitutionProfile | null>(null)
 const requestCardDialog = ref(false)
 const requestCard = ref<CollectionRequest | null>(null)
+
+// Registration requests (from public homepage)
+interface RegistrationRequestItem {
+  id: number
+  first_name: string
+  patronymic: string
+  institution_name: string
+  address: string
+  phone: string
+  created_at: string
+}
+const registrationRequests = ref<RegistrationRequestItem[]>([])
+const loadingRegistrationRequests = ref(false)
+const registrationRequestHeaders = [
+  { title: 'Учреждение', key: 'institution_name' },
+  { title: 'Имя', key: 'first_name' },
+  { title: 'Отчество', key: 'patronymic' },
+  { title: 'Адрес', key: 'address' },
+  { title: 'Телефон', key: 'phone' },
+  { title: 'Дата', key: 'created_at', width: '140' },
+]
+
+// Admin statistics
+interface AdminStatsData {
+  materials: { material_type: string; material_type_display: string; total_kg: number; request_count: number }[]
+  top_organizations: { institution_id: number; institution_name: string; total_kg: number; request_count: number }[]
+  requests_by_status: { status: string; status_display: string; count: number }[]
+  weight_over_time: { period_label: string; date_start: string; total_kg: number }[]
+}
+const adminStats = ref<AdminStatsData | null>(null)
+const loadingStats = ref(false)
+const statsDateFrom = ref('')
+const statsDateTo = ref('')
+const statsBasis = ref<'created' | 'completed'>('created')
+const statsBasisOptions = [
+  { title: 'По дате создания заявки', value: 'created' },
+  { title: 'По дате завершения', value: 'completed' },
+]
+const statsPeriodPreset = ref('year')
+const statsPeriodOptions = [
+  { title: '1 неделя', value: 'week' },
+  { title: '1 месяц', value: 'month' },
+  { title: '1 квартал', value: 'quarter' },
+  { title: '1 год', value: 'year' },
+  { title: 'Свой период', value: 'custom' },
+]
+const statsEmpty = computed(() => {
+  if (!adminStats.value) return true
+  const d = adminStats.value
+  return (
+    d.materials.length === 0 &&
+    d.top_organizations.length === 0 &&
+    d.requests_by_status.every(s => s.count === 0) &&
+    d.weight_over_time.length === 0
+  )
+})
+const statsMaterialFilter = ref('all')
+const statsMaterialFilterItems = computed(() => {
+  const base = [{ title: 'Все материалы', value: 'all' }]
+  const types = adminStats.value?.materials ?? []
+  return base.concat(types.map(m => ({ title: m.material_type_display, value: m.material_type })))
+})
+const filteredMaterials = computed(() => {
+  const list = adminStats.value?.materials ?? []
+  if (statsMaterialFilter.value === 'all') return list
+  return list.filter(m => m.material_type === statsMaterialFilter.value)
+})
+const viewModeMaterials = ref<'table' | 'graph'>('table')
+const viewModeTopOrg = ref<'table' | 'graph'>('table')
+const viewModeStatus = ref<'table' | 'graph'>('table')
+const viewModeWeight = ref<'table' | 'graph'>('table')
+const chartMaterialsRef = ref<HTMLCanvasElement | null>(null)
+const chartTopOrgRef = ref<HTMLCanvasElement | null>(null)
+const chartStatusRef = ref<HTMLCanvasElement | null>(null)
+const chartWeightRef = ref<HTMLCanvasElement | null>(null)
+let chartMaterials: Chart | null = null
+let chartTopOrg: Chart | null = null
+let chartStatus: Chart | null = null
+let chartWeight: Chart | null = null
+const statsMaterialsHeaders = [
+  { title: 'Тип материала', key: 'material_type_display' },
+  { title: 'Масса (кг)', key: 'total_kg' },
+  { title: 'Кол-во заявок', key: 'request_count' },
+]
+const statsTopOrgHeaders = [
+  { title: 'Организация', key: 'institution_name' },
+  { title: 'Масса (кг)', key: 'total_kg' },
+  { title: 'Заявок', key: 'request_count' },
+]
+const statsStatusHeaders = [
+  { title: 'Статус', key: 'status_display' },
+  { title: 'Количество', key: 'count' },
+]
+const statsWeightOverTimeHeaders = [
+  { title: 'Период', key: 'period_label' },
+  { title: 'Масса (кг)', key: 'total_kg' },
+]
 
 // Bonuses
 interface InstitutionBonusItem {
@@ -1366,6 +1679,147 @@ async function loadRequests() {
     loadingRequests.value = false
   }
 }
+
+function formatDate(s: string) {
+  if (!s) return '—'
+  return new Date(s).toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+async function loadRegistrationRequests() {
+  loadingRegistrationRequests.value = true
+  try {
+    const { data } = await api.get<RegistrationRequestItem[]>('/registration-requests/')
+    registrationRequests.value = Array.isArray(data) ? data : []
+  } catch {
+    registrationRequests.value = []
+  } finally {
+    loadingRegistrationRequests.value = false
+  }
+}
+
+function setStatsDatesFromPreset() {
+  const end = new Date()
+  const to = end.toISOString().slice(0, 10)
+  let from: string
+  switch (statsPeriodPreset.value) {
+    case 'week':
+      end.setDate(end.getDate() - 7)
+      from = end.toISOString().slice(0, 10)
+      break
+    case 'quarter':
+      end.setMonth(end.getMonth() - 3)
+      from = end.toISOString().slice(0, 10)
+      break
+    case 'year':
+      end.setFullYear(end.getFullYear() - 1)
+      from = end.toISOString().slice(0, 10)
+      break
+    case 'month':
+    default:
+      end.setMonth(end.getMonth() - 1)
+      from = end.toISOString().slice(0, 10)
+      break
+  }
+  statsDateFrom.value = from
+  statsDateTo.value = to
+}
+
+async function loadAdminStats() {
+  if (statsPeriodPreset.value !== 'custom') setStatsDatesFromPreset()
+  const dateFrom = statsDateFrom.value
+  const dateTo = statsDateTo.value
+  if (!dateFrom || !dateTo) return
+  loadingStats.value = true
+  try {
+    const { data } = await api.get<AdminStatsData>('/stats/admin/', {
+      params: {
+        date_from: dateFrom,
+        date_to: dateTo,
+        basis: statsBasis.value,
+      },
+    })
+    adminStats.value = data
+    await nextTick()
+    drawStatsCharts()
+  } catch {
+    adminStats.value = null
+  } finally {
+    loadingStats.value = false
+  }
+}
+
+function formatKg(kg: number): string {
+  if (kg == null) return '—'
+  return `${Number(kg).toLocaleString('ru-RU')} кг`
+}
+
+function drawStatsCharts() {
+  const data = adminStats.value
+  if (!data) return
+  const destroy = (c: Chart | null) => { c?.destroy() }
+
+  if (viewModeMaterials.value === 'graph' && chartMaterialsRef.value && filteredMaterials.value.length) {
+    destroy(chartMaterials)
+    chartMaterials = new Chart(chartMaterialsRef.value, {
+      type: 'bar',
+      data: {
+        labels: filteredMaterials.value.map(m => m.material_type_display),
+        datasets: [{ label: 'Масса (кг)', data: filteredMaterials.value.map(m => m.total_kg), backgroundColor: 'rgba(25, 118, 210, 0.7)' }],
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+    })
+  } else { destroy(chartMaterials); chartMaterials = null }
+
+  if (viewModeTopOrg.value === 'graph' && chartTopOrgRef.value && data.top_organizations.length) {
+    destroy(chartTopOrg)
+    const top10 = data.top_organizations.slice(0, 10)
+    chartTopOrg = new Chart(chartTopOrgRef.value, {
+      type: 'bar',
+      data: {
+        labels: top10.map(o => o.institution_name.length > 25 ? o.institution_name.slice(0, 22) + '…' : o.institution_name),
+        datasets: [{ label: 'Масса (кг)', data: top10.map(o => o.total_kg), backgroundColor: 'rgba(56, 142, 60, 0.7)' }],
+      },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } },
+    })
+  } else { destroy(chartTopOrg); chartTopOrg = null }
+
+  if (viewModeStatus.value === 'graph' && chartStatusRef.value && data.requests_by_status.length) {
+    destroy(chartStatus)
+    chartStatus = new Chart(chartStatusRef.value, {
+      type: 'doughnut',
+      data: {
+        labels: data.requests_by_status.map(s => s.status_display),
+        datasets: [{ data: data.requests_by_status.map(s => s.count), backgroundColor: ['#ff9800', '#2196f3', '#4caf50'] }],
+      },
+      options: { responsive: true, maintainAspectRatio: false },
+    })
+  } else { destroy(chartStatus); chartStatus = null }
+
+  if (viewModeWeight.value === 'graph' && chartWeightRef.value && data.weight_over_time.length) {
+    destroy(chartWeight)
+    chartWeight = new Chart(chartWeightRef.value, {
+      type: 'line',
+      data: {
+        labels: data.weight_over_time.map(w => w.period_label),
+        datasets: [{ label: 'Масса (кг)', data: data.weight_over_time.map(w => w.total_kg), borderColor: '#1976d2', fill: true, tension: 0.2 }],
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+    })
+  } else { destroy(chartWeight); chartWeight = null }
+}
+
+watch(statsPeriodPreset, () => {
+  if (statsPeriodPreset.value !== 'custom') setStatsDatesFromPreset()
+})
+watch([viewModeMaterials, viewModeTopOrg, viewModeStatus, viewModeWeight, filteredMaterials], () => {
+  nextTick(() => drawStatsCharts())
+})
 
 async function fetchBonusConfig() {
   try {
@@ -1953,7 +2407,12 @@ watch(activeTab, (tab) => {
   if (tab === 'news') loadNews()
   if (tab === 'companies') loadCompanies()
   if (tab === 'institutions') loadInstitutions()
+  if (tab === 'registration-requests') loadRegistrationRequests()
   if (tab === 'requests') loadRequests()
+  if (tab === 'statistics') {
+    setStatsDatesFromPreset()
+    loadAdminStats()
+  }
   if (tab === 'bonuses') {
     fetchBonusConfig()
     fetchInstitutionBonuses()

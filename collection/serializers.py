@@ -9,6 +9,7 @@ from .models import (
     CollectionRequest,
     CompanyProfile,
     InstitutionBonus,
+    InstitutionRegistrationRequest,
     InAppNotification,
     InstitutionProfile,
     NewsArticle,
@@ -581,6 +582,27 @@ class InstitutionStatsSerializer(serializers.Serializer):
     )
 
 
+class AdminStatsSerializer(serializers.Serializer):
+    """Response format for /api/stats/admin/. All collections in date range."""
+
+    materials = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='By material_type: total_kg, request_count, material_type_display',
+    )
+    top_organizations = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='institution_name, institution_id, total_kg, request_count',
+    )
+    requests_by_status = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='status, status_display, count',
+    )
+    weight_over_time = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='period_label, date_start, total_kg',
+    )
+
+
 class PriceListSerializer(serializers.ModelSerializer):
     """CRUD for PriceList (admin only)."""
 
@@ -777,3 +799,12 @@ class PointsOrderCreateSerializer(serializers.Serializer):
             if item['quantity'] < 1:
                 raise serializers.ValidationError(f'Строка {i + 1}: количество должно быть не менее 1.')
         return value
+
+
+class InstitutionRegistrationRequestSerializer(serializers.ModelSerializer):
+    """Public submission from homepage; admin lists these."""
+
+    class Meta:
+        model = InstitutionRegistrationRequest
+        fields = ['id', 'first_name', 'patronymic', 'institution_name', 'address', 'phone', 'created_at']
+        read_only_fields = ['id', 'created_at']

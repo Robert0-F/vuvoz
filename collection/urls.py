@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
+    AdminStatsView,
     BonusConfigView,
     CollectionRequestViewSet,
     CompanyProfileViewSet,
@@ -11,6 +12,7 @@ from .views import (
     HealthView,
     InstitutionBonusViewSet,
     InstitutionPointsView,
+    InstitutionRegistrationRequestViewSet,
     InstitutionStatsView,
     InstitutionViewSet,
     NewsArticleViewSet,
@@ -29,6 +31,7 @@ router.register(r'news', NewsArticleViewSet, basename='news')
 router.register(r'prices', PriceListViewSet, basename='pricelist')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 router.register(r'products', ProductViewSet, basename='product')
+router.register(r'registration-requests', InstitutionRegistrationRequestViewSet, basename='registrationrequest')
 router.register(r'points-orders', PointsOrderViewSet, basename='pointsorder')
 
 urlpatterns = [
@@ -37,6 +40,7 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('stats/company/', CompanyStatsView.as_view(), name='stats-company'),
     path('stats/institution/', InstitutionStatsView.as_view(), name='stats-institution'),
+    path('stats/admin/', AdminStatsView.as_view(), name='stats-admin'),
     path('me/points/', InstitutionPointsView.as_view(), name='institution-points'),
     path('weight-limits/', WeightLimitsView.as_view(), name='weight-limits'),
     path('bonus-config/', BonusConfigView.as_view(), name='bonus-config'),

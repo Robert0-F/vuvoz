@@ -4,11 +4,11 @@
 
 ## Возможности
 
-- **Публичная главная страница** — лента новостей, описание сервиса, кнопка входа
+- **Публичная главная страница** — лента новостей, описание сервиса, регистрация учреждений (заявка), вход
 - **Роли пользователей**: Администратор, Компания, Учреждение
 - **Компании** — управление профилем, учреждениями, заявками, статистика
 - **Учреждения** — создание заявок на вывоз, просмотр своей статистики
-- **Администраторы** — управление компаниями, прайс-листами, новостями
+- **Администраторы** — управление компаниями, прайс-листами, новостями, статистика, заявки на регистрацию
 - **Новости** — публичная лента (без авторизации) + CRUD для админов
 
 ## Технологии
@@ -64,6 +64,12 @@ python manage.py shell -c "exec(open('scripts/load_test_data.py', encoding='utf-
 
 **Товары за баллы** — создать 10 тестовых товаров: `python scripts/create_bonus_products.py`.
 
+**Данные для статистики** — для проверки вкладки «Статистика» в админке:
+```bash
+python scripts/generate_stats_data.py
+```
+Создаёт ~60 заявок с разными датами, типами макулатуры и статусами (требуется `load_test_data.py`).
+
 **Фото товаров** — сохраняются в `media/products/`. Чтобы хотя бы один товар показывал фото: загрузите в **Django admin** (http://localhost:8000/admin/ → «Товары (баллы)») или выполните скрипт (после `create_bonus_products.py`):
 
 ```bash
@@ -93,6 +99,7 @@ pytest tests/ -v
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) — статус проекта, известные проблемы
 - [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md) — чек-лист ручной проверки интерфейса
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — если Vue не подключается к Django, страницы не загружаются
+- [docs/STATISTICS_LOGIC.md](docs/STATISTICS_LOGIC.md) — логика статистики в админке (откуда данные, период по созданию/завершению)
 
 ## Структура проекта
 
@@ -102,7 +109,7 @@ vuvoz/
 ├── vuvoz/               # Django settings, urls
 ├── frontend/            # Vue SPA (Vite, Vuetify)
 ├── tests/               # Pytest тесты API
-├── scripts/             # load_test_data.py, clear_db.py, create_bonus_products.py, attach_test_product_image.py
+├── scripts/             # load_test_data.py, generate_stats_data.py, create_bonus_products.py, attach_test_product_image.py
 ├── docs/                # Чек-листы и доп. документация
 ├── manage.py
 ├── requirements.txt

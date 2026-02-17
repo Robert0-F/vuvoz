@@ -1,8 +1,9 @@
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.db.models import Avg, Case, Count, DurationField, ExpressionWrapper, F, Q, Sum, When
+from django.db.models.functions import TruncDate, TruncMonth, TruncWeek
 from django.utils import timezone as tz
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -15,8 +16,9 @@ from .models import (
     CollectionRequest,
     CompanyProfile,
     InstitutionBonus,
-    InAppNotification,
     InstitutionProfile,
+    InstitutionRegistrationRequest,
+    InAppNotification,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
@@ -35,6 +37,7 @@ from .permissions import (
     IsOwnCompany,
 )
 from .serializers import (
+    AdminStatsSerializer,
     BonusConfigSerializer,
     CalculatePreviewSerializer,
     CollectionRequestCompleteSerializer,
@@ -55,6 +58,7 @@ from .serializers import (
     PointsOrderStatusSerializer,
     PriceListSerializer,
     ProductSerializer,
+    InstitutionRegistrationRequestSerializer,
     UserBasicSerializer,
 )
 
@@ -515,6 +519,25 @@ class ProductViewSet(
         return qs.order_by('name')
 
 
+class InstitutionRegistrationRequestViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Public: POST to submit registration request. Admin: list all requests."""
+
+    serializer_class = InstitutionRegistrationRequestSerializer
+    queryset = InstitutionRegistrationRequest.objects.all()
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsAdministrator()]
+
+    def get_queryset(self):
+        return InstitutionRegistrationRequest.objects.all().order_by('-created_at')
+
+
 class PointsOrderViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -614,6 +637,15 @@ def _apply_date_filter(queryset, start_date, end_date):
         queryset = queryset.filter(created_at__date__gte=start_date)
     if end_date:
         queryset = queryset.filter(created_at__date__lte=end_date)
+    return queryset
+
+
+def _apply_date_filter_by_field(queryset, start_date, end_date, date_field='created_at'):
+    """Apply start_date/end_date to a queryset by date field (e.g. created_at or completed_at)."""
+    if start_date:
+        queryset = queryset.filter(**{f'{date_field}__date__gte': start_date})
+    if end_date:
+        queryset = queryset.filter(**{f'{date_field}__date__lte': end_date})
     return queryset
 
 
@@ -792,4 +824,140 @@ class InstitutionStatsView(APIView):
             'total_weight_this_month': total_weight_this_month,
         }
         serializer = InstitutionStatsSerializer(instance=data)
+        return Response(serializer.data)
+
+
+class AdminStatsView(APIView):
+    """
+    GET /api/stats/admin/
+    Permission: IsAdministrator.
+    Query params:
+      date_from, date_to (YYYY-MM-DD) — period. Default: last 365 days.
+      basis — 'created' (by request creation date) or 'completed' (by completed_at, completed requests only).
+    Returns: materials, top_organizations, requests_by_status, weight_over_time.
+    Statistics are computed from CollectionRequest and RequestMaterialLine; no separate storage.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        start_date = _parse_date_param(request.query_params.get('date_from'))
+        end_date = _parse_date_param(request.query_params.get('date_to'))
+        if not start_date or not end_date:
+            end_date = tz.now().date()
+            start_date = end_date - timedelta(days=365)
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+
+        basis = (request.query_params.get('basis') or 'created').strip().lower()
+        if basis not in ('created', 'completed'):
+            basis = 'created'
+
+        date_field = 'completed_at' if basis == 'completed' else 'created_at'
+        requests_base = CollectionRequest.objects.all().select_related(
+            'institution', 'receiving_company'
+        )
+        if basis == 'completed':
+            requests_base = requests_base.filter(
+                status=CollectionRequest.Status.COMPLETED,
+                completed_at__isnull=False,
+            )
+        requests_filtered = _apply_date_filter_by_field(
+            requests_base, start_date, end_date, date_field
+        )
+
+        material_choices = dict(CollectionRequest.MaterialType.choices)
+
+        # 1) Materials: from RequestMaterialLine + requests with no lines (use request.material_type + paper_weight_kg)
+        lines_qs = RequestMaterialLine.objects.filter(
+            collection_request__in=requests_filtered,
+        ).values('material_type').annotate(
+            total_kg=Sum('amount_kg'),
+            request_count=Count('collection_request_id', distinct=True),
+        )
+        materials_by_type = {}
+        for row in lines_qs:
+            materials_by_type[row['material_type']] = {
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+        # Requests with zero material_lines: add their material_type and paper_weight_kg
+        from django.db.models import Exists, OuterRef
+        has_lines = RequestMaterialLine.objects.filter(collection_request_id=OuterRef('pk'))
+        requests_no_lines = requests_filtered.filter(~Exists(has_lines)).values(
+            'material_type', 'paper_weight_kg'
+        )
+        for row in requests_no_lines:
+            mt = row['material_type'] or 'paper'
+            kg = float(row['paper_weight_kg'] or 0)
+            if mt not in materials_by_type:
+                materials_by_type[mt] = {'total_kg': 0, 'request_count': 0}
+            materials_by_type[mt]['total_kg'] += kg
+            materials_by_type[mt]['request_count'] += 1
+        materials = [
+            {
+                'material_type': mt,
+                'material_type_display': material_choices.get(mt, mt),
+                'total_kg': materials_by_type[mt]['total_kg'],
+                'request_count': materials_by_type[mt]['request_count'],
+            }
+            for mt in sorted(materials_by_type.keys(), key=lambda x: -materials_by_type[x]['total_kg'])
+        ]
+
+        # 2) Top organizations
+        top_qs = requests_filtered.values(
+            'institution_id', 'institution__institution_name'
+        ).annotate(
+            total_kg=Sum('paper_weight_kg'),
+            request_count=Count('id'),
+        ).order_by('-total_kg')[:30]
+        top_organizations = [
+            {
+                'institution_id': row['institution_id'],
+                'institution_name': row['institution__institution_name'] or '—',
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+            for row in top_qs
+        ]
+
+        # 3) Requests by status
+        status_agg = _requests_by_status_aggregate(requests_filtered)
+        status_labels = {'new': 'Новые', 'accepted': 'Принятые', 'completed': 'Завершённые'}
+        requests_by_status = [
+            {'status': k, 'status_display': status_labels.get(k, k), 'count': status_agg[k]}
+            for k in ('new', 'accepted', 'completed')
+        ]
+
+        # 4) Weight over time: group by week or month using the same date field
+        range_days = (end_date - start_date).days
+        if range_days <= 31:
+            trunc_fn = TruncDate
+            date_format = '%d.%m'
+        elif range_days <= 93:
+            trunc_fn = TruncWeek
+            date_format = '%d.%m'
+        else:
+            trunc_fn = TruncMonth
+            date_format = '%b %Y'
+        weight_qs = requests_filtered.annotate(
+            period=trunc_fn(date_field)
+        ).values('period').annotate(total_kg=Sum('paper_weight_kg')).order_by('period')
+        weight_over_time = []
+        for row in weight_qs:
+            if row['period']:
+                label = row['period'].strftime(date_format) if hasattr(row['period'], 'strftime') else str(row['period'])
+                weight_over_time.append({
+                    'period_label': label,
+                    'date_start': row['period'].isoformat() if hasattr(row['period'], 'isoformat') else str(row['period']),
+                    'total_kg': float(row['total_kg'] or 0),
+                })
+
+        data = {
+            'materials': materials,
+            'top_organizations': top_organizations,
+            'requests_by_status': requests_by_status,
+            'weight_over_time': weight_over_time,
+        }
+        serializer = AdminStatsSerializer(instance=data)
         return Response(serializer.data)

@@ -7,8 +7,9 @@ from .models import (
     CompanyProfile,
     CustomUser,
     InstitutionBonus,
-    InAppNotification,
     InstitutionProfile,
+    InstitutionRegistrationRequest,
+    InAppNotification,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
@@ -152,6 +153,14 @@ class InstitutionBonusAdmin(admin.ModelAdmin):
     list_filter = ('status', 'created_at')
     search_fields = ('institution__institution_name', 'collection_request__request_number')
     raw_id_fields = ('institution', 'collection_request', 'confirmed_by')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(InstitutionRegistrationRequest)
+class InstitutionRegistrationRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'institution_name', 'first_name', 'patronymic', 'address', 'phone', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('institution_name', 'first_name', 'address', 'phone')
     readonly_fields = ('created_at',)
 
 

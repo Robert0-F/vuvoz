@@ -293,6 +293,12 @@ Query params: `start_date`, `end_date` (YYYY-MM-DD).
 | GET | `/api/points-orders/` | Institution (свои) / Admin (все) | Список заказов. |
 | POST | `/api/points-orders/` | Institution | Создать заказ: `{ "recipient_name", "recipient_phone", "address", "items": [{ "product_id": int, "quantity": int }] }`. Списываются баллы с баланса организации. |
 
+### Статистика (админ)
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/stats/admin/` | Admin | Сводка: объём по типам материалов, топ организаций, заявки по статусам, динамика по периодам. Параметры: `date_from`, `date_to` (YYYY-MM-DD), `basis` = `created` (по дате создания заявки) или `completed` (по дате завершения). По умолчанию период — последние 365 дней. Подробнее: [docs/STATISTICS_LOGIC.md](docs/STATISTICS_LOGIC.md). |
+
 ---
 
 ## Rate limiting

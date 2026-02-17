@@ -556,3 +556,22 @@ class PointsOrderLine(models.Model):
 
     def __str__(self):
         return f'{self.product.name} × {self.quantity}'
+
+
+class InstitutionRegistrationRequest(models.Model):
+    """Request from the public homepage for an institution to be registered. Admin reviews and creates the institution."""
+
+    first_name = models.CharField(max_length=150)
+    patronymic = models.CharField(max_length=150, blank=True)
+    institution_name = models.CharField(max_length=255)
+    address = models.TextField()
+    phone = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Заявка на регистрацию учреждения'
+        verbose_name_plural = 'Заявки на регистрацию учреждений'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.institution_name} — {self.first_name} ({self.created_at.date()})'
