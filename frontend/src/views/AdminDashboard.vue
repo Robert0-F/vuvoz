@@ -10,9 +10,9 @@
       <v-btn variant="text" icon="mdi-logout" @click="logout" />
     </v-app-bar>
 
-    <v-main class="pa-50">
+    <v-main class="pa-50 bg-surface-variant">
       <v-container fluid class="pa-0 pa-sm-4">
-        <v-tabs v-model="activeTab" class="mb-4">
+        <v-tabs v-model="activeTab" class="mb-4 vuvoz-tabs" color="primary">
           <v-tab value="prices">Цены на макулатуру</v-tab>
           <v-tab value="news">Новости</v-tab>
           <v-tab value="companies">Компании</v-tab>
@@ -28,7 +28,7 @@
         <v-window v-model="activeTab">
           <!-- Prices -->
           <v-window-item value="prices">
-            <v-card class="rounded-lg" elevation="1">
+            <v-card class="rounded-lg vuvoz-content-card" elevation="1">
               <v-card-title class="d-flex align-center">
                 Справочник цен (руб/кг)
                 <v-spacer />

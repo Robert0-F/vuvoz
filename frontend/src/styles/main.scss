@@ -1,0 +1,49 @@
+@use './variables.scss';
+@use './animations.scss';
+@use './overrides.scss';
+@use './homepage.scss';
+
+// Base
+html {
+  scroll-behavior: smooth;
+}
+
+// Utility
+.vuvoz-container-narrow {
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+.vuvoz-section-title {
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.vuvoz-gradient-text {
+  background: var(--vuvoz-gradient-hero);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.vuvoz-content-card {
+  border-radius: var(--vuvoz-radius-lg);
+  box-shadow: var(--vuvoz-shadow);
+  transition: box-shadow var(--vuvoz-duration) var(--vuvoz-ease);
+}
+
+// Router view transition (used with <Transition name="vuvoz-page">)
+.vuvoz-page-enter-active,
+.vuvoz-page-leave-active {
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.vuvoz-page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.vuvoz-page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}

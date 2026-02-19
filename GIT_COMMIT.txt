@@ -1,0 +1,35 @@
+# Git: подготовка и текст коммита
+
+## Добавить и закоммитить изменения
+
+```bash
+git add .
+git status   # проверить, что в индексе
+git commit -m "docs: add Future Ideas/Roadmap, THIS_IS_AUTO, update project docs"
+```
+
+## Варианты commit message (короткий и развёрнутый)
+
+### Короткий
+```
+docs: add Future Ideas/Roadmap and AI collaboration note
+```
+
+### Развёрнутый
+```
+docs: add Future Ideas/Roadmap, update project documentation
+
+- PROJECT_STATUS: expand Roadmap into Future Ideas/Roadmap section
+  (Yandex.Maps, Telegram bot, analytics, 2FA, etc.)
+- README: update features list, add link to Roadmap
+- Add THIS_IS_AUTO.md — note from AI assistant
+- Add GIT_COMMIT.txt — instructions and commit message templates
+```
+
+## Push (если настроен remote)
+
+```bash
+git push origin main
+# или
+git push origin master
+```

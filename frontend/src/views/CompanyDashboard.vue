@@ -26,9 +26,9 @@
       <v-btn variant="text" icon="mdi-logout" @click="logout" />
     </v-app-bar>
 
-    <v-main class="pa-50">
+    <v-main class="pa-50 bg-surface-variant">
       <v-container fluid class="pa-0 pa-sm-4">
-        <v-tabs v-model="companyTab" class="mb-4">
+        <v-tabs v-model="companyTab" class="mb-4" color="primary">
           <v-tab value="overview">Обзор</v-tab>
           <v-tab value="stats">Статистика</v-tab>
           <v-tab value="institutions">Организации</v-tab>
@@ -39,7 +39,7 @@
         <v-window v-model="companyTab">
           <!-- Overview -->
           <v-window-item value="overview">
-            <v-card class="mb-4 rounded-lg" variant="tonal" elevation="1">
+            <v-card class="mb-4 rounded-lg vuvoz-content-card" variant="tonal" elevation="1">
               <v-card-title>Информация о компании</v-card-title>
               <v-card-text v-if="userStore.companyProfile">
                 <v-row>
@@ -73,7 +73,7 @@
                 <StatsCard title="Вывезено (кг)" :value="statsOverview.totalWeight" icon="mdi-weight-kilogram" color="info" />
               </v-col>
             </v-row>
-            <v-card class="rounded-lg" elevation="1">
+            <v-card class="rounded-lg vuvoz-content-card" elevation="1">
               <v-card-title class="d-flex align-center">
                 Мои организации
                 <v-spacer />
@@ -336,7 +336,39 @@
             <v-textarea v-model="statusUpdateNotes" label="Внутренние заметки (не видны организации)" variant="outlined" rows="2" />
           </template>
           <template v-else>
-            <v-text-field v-model="completeActualAmount" label="Фактическое количество (кг) *" type="number" min="1" step="0.01" variant="outlined" density="comfortable" :error-messages="completeErrors.actual_amount" class="mb-3" />
+            <p v-if="hasMultipleMaterials" class="text-body-2 text-medium-emphasis mb-3">
+              В заявке несколько типов сырья. Укажите фактический вес (кг) по каждому типу.
+            </p>
+            <template v-if="hasMultipleMaterials">
+              <div
+                v-for="(line, idx) in completeActualMaterialLines"
+                :key="line.material_type + idx"
+                class="mb-3"
+              >
+                <v-text-field
+                  v-model="line.amount_kg"
+                  :label="`${materialTypeLabel(line.material_type)} — фактический вес (кг) *`"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  variant="outlined"
+                  density="comfortable"
+                  :error-messages="completeErrors[`line_${idx}`]"
+                />
+              </div>
+            </template>
+            <v-text-field
+              v-else
+              v-model="completeActualAmount"
+              label="Фактическое количество (кг) *"
+              type="number"
+              min="1"
+              step="0.01"
+              variant="outlined"
+              density="comfortable"
+              :error-messages="completeErrors.actual_amount"
+              class="mb-3"
+            />
             <v-text-field v-model="completeActualDate" label="Дата фактического вывоза" type="date" variant="outlined" density="comfortable" class="mb-3" />
             <v-textarea v-model="completeInternalNotes" label="Внутренние заметки" variant="outlined" rows="2" />
             <p v-if="completeActualValue != null" class="text-body-2 mt-2">Расчётная стоимость: <strong>{{ completeActualValue }} руб.</strong></p>
@@ -391,11 +423,28 @@ const statusUpdate = ref('')
 const statusUpdateEstimatedDate = ref('')
 const statusUpdateNotes = ref('')
 const completeActualAmount = ref('')
+const completeActualMaterialLines = ref<{ material_type: string; amount_kg: string }[]>([])
 const completeActualDate = ref('')
 const completeInternalNotes = ref('')
-const completeErrors = reactive<{ actual_amount?: string }>({})
+const completeErrors = reactive<{ actual_amount?: string; [k: string]: string | undefined }>({})
 const updatingStatus = ref(false)
 const completeActualValue = ref<string | null>(null)
+
+const materialTypeLabels: Record<string, string> = {
+  paper: 'Бумага',
+  cardboard: 'Картон',
+  newspapers: 'Газеты',
+  mixed: 'Смешанная',
+  archive: 'Архивная',
+}
+function materialTypeLabel(materialType: string) {
+  return materialTypeLabels[materialType] || materialType
+}
+
+const hasMultipleMaterials = computed(() => {
+  const lines = selectedRequest.value?.material_lines
+  return Array.isArray(lines) && lines.length > 1
+})
 const notifications = ref<{ id: number; title: string; message: string; read: boolean }[]>([])
 const unreadCount = ref(0)
 const deleteDialog = ref(false)
@@ -474,14 +523,6 @@ const statsOverview = computed(() => {
     .reduce((sum, r) => sum + parseFloat(String(r.actual_amount || r.estimated_amount || r.paper_weight_kg || 0)), 0)
   return { totalRequests: total, completed, totalWeight: totalWeight.toFixed(1) }
 })
-
-const materialTypeLabels: Record<string, string> = {
-  paper: 'Бумага',
-  cardboard: 'Картон',
-  newspapers: 'Газеты',
-  mixed: 'Смешанная',
-  archive: 'Архивная',
-}
 
 function formatMaterialLines(item: CollectionRequest): string {
   const lines = item.material_lines
@@ -601,34 +642,73 @@ function openStatusDialog(request: CollectionRequest) {
   statusUpdate.value = request.status
   statusUpdateEstimatedDate.value = request.estimated_collection_date || ''
   statusUpdateNotes.value = request.notes || ''
-  completeActualAmount.value = request.actual_amount ?? ''
   completeActualDate.value = request.actual_collection_date ?? ''
   completeInternalNotes.value = request.internal_notes ?? ''
   completeErrors.actual_amount = ''
+  Object.keys(completeErrors).forEach((k) => { completeErrors[k] = '' })
   completeActualValue.value = request.actual_value ?? null
+  const lines = request.material_lines
+  if (Array.isArray(lines) && lines.length > 1) {
+    completeActualMaterialLines.value = lines.map((l) => ({
+      material_type: l.material_type,
+      amount_kg: l.amount_kg ?? '',
+    }))
+    completeActualAmount.value = ''
+  } else {
+    completeActualMaterialLines.value = []
+    completeActualAmount.value = request.actual_amount ?? ''
+  }
   statusDialog.value = true
 }
 
-watch([() => selectedRequest.value?.id, () => statusUpdate.value, completeActualAmount], async () => {
-  if (statusUpdate.value !== 'completed' || !selectedRequest.value) {
-    completeActualValue.value = null
-    return
+watch(
+  [
+    () => selectedRequest.value?.id,
+    () => statusUpdate.value,
+    completeActualAmount,
+    () => completeActualMaterialLines.value.map((l) => l.amount_kg).join(','),
+  ],
+  async () => {
+    if (statusUpdate.value !== 'completed' || !selectedRequest.value) {
+      completeActualValue.value = null
+      return
+    }
+    if (hasMultipleMaterials.value) {
+      const lines = completeActualMaterialLines.value
+      const total = lines.reduce((sum, l) => sum + (parseFloat(String(l.amount_kg)) || 0), 0)
+      if (total <= 0) {
+        completeActualValue.value = null
+        return
+      }
+      try {
+        const { data } = await api.post<{ estimated_value: string }>('/collection-requests/calculate/', {
+          material_lines: lines.map((l) => ({
+            material_type: l.material_type,
+            amount_kg: l.amount_kg,
+          })),
+        })
+        completeActualValue.value = data.estimated_value
+      } catch {
+        completeActualValue.value = null
+      }
+      return
+    }
+    const amount = parseFloat(completeActualAmount.value)
+    if (isNaN(amount) || amount <= 0) {
+      completeActualValue.value = null
+      return
+    }
+    try {
+      const { data } = await api.post<{ estimated_value: string }>('/collection-requests/calculate/', {
+        material_type: selectedRequest.value.material_type || 'paper',
+        amount_kg: completeActualAmount.value,
+      })
+      completeActualValue.value = data.estimated_value
+    } catch {
+      completeActualValue.value = null
+    }
   }
-  const amount = parseFloat(completeActualAmount.value)
-  if (isNaN(amount) || amount <= 0) {
-    completeActualValue.value = null
-    return
-  }
-  try {
-    const { data } = await api.post<{ estimated_value: string }>('/collection-requests/calculate/', {
-      material_type: selectedRequest.value.material_type || 'paper',
-      amount_kg: completeActualAmount.value,
-    })
-    completeActualValue.value = data.estimated_value
-  } catch {
-    completeActualValue.value = null
-  }
-})
+)
 
 async function loadNotifications() {
   try {
@@ -664,7 +744,50 @@ async function markAllNotificationsRead() {
 async function saveStatus() {
   if (!selectedRequest.value) return
   if (statusUpdate.value === 'completed') {
-    completeErrors.actual_amount = ''
+    Object.keys(completeErrors).forEach((k) => { completeErrors[k] = '' })
+    if (hasMultipleMaterials.value) {
+      const lines = completeActualMaterialLines.value
+      let total = 0
+      let hasError = false
+      lines.forEach((line, idx) => {
+        const kg = parseFloat(String(line.amount_kg))
+        if (isNaN(kg) || kg < 0) {
+          completeErrors[`line_${idx}`] = 'Укажите вес (0 или больше).'
+          hasError = true
+        } else {
+          total += kg
+        }
+      })
+      if (total < 1) {
+        completeErrors.actual_amount = 'Суммарный фактический вес должен быть не менее 1 кг.'
+        hasError = true
+      }
+      if (hasError) return
+      updatingStatus.value = true
+      try {
+        await api.post(`/collection-requests/${selectedRequest.value.id}/complete/`, {
+          actual_material_lines: lines.map((l) => ({
+            material_type: l.material_type,
+            amount_kg: l.amount_kg,
+          })),
+          actual_collection_date: completeActualDate.value || null,
+          internal_notes: completeInternalNotes.value || '',
+        })
+        await loadRequests()
+        statusDialog.value = false
+        selectedRequest.value = null
+      } catch (err: unknown) {
+        const ax = err as { response?: { data?: Record<string, string | string[]> } }
+        const d = ax.response?.data
+        if (d?.actual_material_lines) {
+          const msg = Array.isArray(d.actual_material_lines) ? d.actual_material_lines.flat().join(' ') : String(d.actual_material_lines)
+          completeErrors.actual_amount = msg
+        }
+      } finally {
+        updatingStatus.value = false
+      }
+      return
+    }
     const amount = parseFloat(completeActualAmount.value)
     if (isNaN(amount) || amount < 1) {
       completeErrors.actual_amount = 'Укажите фактическое количество (мин. 1 кг).'

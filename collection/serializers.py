@@ -634,16 +634,39 @@ class CurrentPricesSerializer(serializers.Serializer):
 
 
 class CollectionRequestCompleteSerializer(serializers.Serializer):
-    """Payload for completing a request (company only)."""
+    """Payload for completing a request (company only).
+    Either actual_amount (single total kg) or actual_material_lines (per-material actual weights).
+    When multiple materials in the request, use actual_material_lines to specify weight per type.
+    """
 
     actual_amount = serializers.DecimalField(
-        max_digits=10, decimal_places=2, required=True
+        max_digits=10, decimal_places=2, required=False
+    )
+    actual_material_lines = serializers.ListField(
+        child=MaterialLineSerializer(),
+        required=False,
+        allow_empty=False,
     )
     actual_collection_date = serializers.DateField(required=False, allow_null=True)
     internal_notes = serializers.CharField(required=False, allow_blank=True)
 
     def validate_actual_amount(self, value):
         return validate_paper_weight_kg(value)
+
+    def validate(self, attrs):
+        has_amount = attrs.get('actual_amount') is not None
+        has_lines = attrs.get('actual_material_lines')
+        if has_lines:
+            if not attrs['actual_material_lines']:
+                raise serializers.ValidationError(
+                    {'actual_material_lines': 'Укажите хотя бы одну строку с фактическим весом по типу сырья.'}
+                )
+            return attrs
+        if has_amount:
+            return attrs
+        raise serializers.ValidationError(
+            'Укажите actual_amount (общий вес в кг) или actual_material_lines (фактический вес по каждому типу сырья).'
+        )
 
 
 class CalculatePreviewSerializer(serializers.Serializer):

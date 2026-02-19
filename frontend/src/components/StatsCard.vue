@@ -1,5 +1,5 @@
 <template>
-  <v-card :color="color" variant="tonal" class="pa-4">
+  <v-card :color="color" variant="tonal" class="stats-card pa-4 rounded-lg vuvoz-card-interactive">
     <div class="d-flex align-center">
       <v-icon :icon="icon" size="40" class="mr-3" />
       <div>

@@ -1,0 +1,106 @@
+// Global overrides for Vuetify and base elements
+@use './variables.scss';
+
+// Default text color so it doesn’t blend with white background
+.v-application {
+  color: var(--vuvoz-text);
+}
+
+// Cards
+.v-card {
+  border-radius: var(--vuvoz-radius) !important;
+  box-shadow: var(--vuvoz-shadow) !important;
+  transition: box-shadow var(--vuvoz-duration) var(--vuvoz-ease),
+              transform var(--vuvoz-duration) var(--vuvoz-ease);
+}
+
+.v-card.v-card--variant-elevated,
+.v-card.v-card--variant-flat.elevation-1 {
+  box-shadow: var(--vuvoz-shadow) !important;
+}
+
+// Buttons
+.v-btn {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  border-radius: var(--vuvoz-radius-sm) !important;
+  transition: transform 0.15s var(--vuvoz-ease),
+              box-shadow 0.15s var(--vuvoz-ease),
+              background-color 0.2s var(--vuvoz-ease);
+}
+
+.v-btn:hover:not(.v-btn--disabled) {
+  transform: translateY(-1px);
+}
+
+.v-btn.v-btn--variant-elevated:not(.v-btn--disabled):hover {
+  box-shadow: var(--vuvoz-shadow-lg);
+}
+
+// Inputs
+.v-field {
+  border-radius: var(--vuvoz-radius-sm) !important;
+}
+
+.v-field--variant-outlined .v-field__outline {
+  transition: border-color var(--vuvoz-duration) var(--vuvoz-ease);
+}
+
+.v-field--focused .v-field__outline {
+  border-width: 2px;
+}
+
+// Data tables
+.v-data-table {
+  border-radius: var(--vuvoz-radius) !important;
+  overflow: hidden;
+}
+
+.v-data-table .v-table__wrapper > table > thead > tr > th {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+// App bar
+.v-app-bar {
+  box-shadow: var(--vuvoz-shadow-sm) !important;
+}
+
+// Chips
+.v-chip {
+  border-radius: 9999px !important;
+  font-weight: 500;
+}
+
+// Alerts
+.v-alert {
+  border-radius: var(--vuvoz-radius-sm) !important;
+}
+
+// Dialogs
+.v-dialog > .v-overlay__content > .v-card {
+  border-radius: var(--vuvoz-radius-lg) !important;
+  box-shadow: var(--vuvoz-shadow-xl) !important;
+}
+
+// Tabs
+.v-tabs .v-tab {
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.v-tabs .v-tab--selected {
+  font-weight: 600;
+}
+
+// Progress
+.v-progress-circular {
+  transition: transform var(--vuvoz-duration) var(--vuvoz-ease);
+}
+
+// Snackbar
+.v-snackbar__wrapper {
+  border-radius: var(--vuvoz-radius-sm) !important;
+  box-shadow: var(--vuvoz-shadow-lg) !important;
+}

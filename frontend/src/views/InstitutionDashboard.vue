@@ -26,9 +26,9 @@
       <v-btn variant="text" icon="mdi-logout" @click="logout" />
     </v-app-bar>
 
-    <v-main class="pa-50">
+    <v-main class="pa-50 bg-surface-variant">
       <v-container fluid class="pa-0 pa-sm-4">
-        <v-tabs v-model="mainTab" class="mb-4">
+        <v-tabs v-model="mainTab" class="mb-4" color="primary">
           <v-tab value="requests">Заявки на вывоз</v-tab>
           <v-tab value="points">Зелёные баллы</v-tab>
         </v-tabs>
@@ -36,7 +36,7 @@
         <v-window v-model="mainTab">
           <v-window-item value="requests">
         <!-- Institution info -->
-        <v-card class="mb-6 rounded-lg" variant="tonal" elevation="1">
+        <v-card class="mb-6 rounded-lg vuvoz-content-card" variant="tonal" elevation="1">
           <v-card-title class="d-flex align-center">
             Информация об организации
             <v-spacer />
@@ -81,7 +81,7 @@
         </v-row>
 
         <!-- New request form -->
-        <v-card class="mb-6 rounded-lg" elevation="1">
+        <v-card class="mb-6 rounded-lg vuvoz-content-card" elevation="1">
           <v-card-title>Новый запрос на вывоз</v-card-title>
           <v-divider />
           <v-card-text>
@@ -237,7 +237,7 @@
               <v-card-text v-else>
                 <v-row>
                   <v-col v-for="p in products" :key="p.id" cols="12" sm="6" md="4">
-                    <v-card variant="outlined" class="pa-3 product-card d-flex flex-column" style="height: 320px;">
+                    <v-card variant="flat" class="pa-3 product-card vuvoz-card-interactive d-flex flex-column rounded-lg" elevation="1" style="height: 320px;">
                       <div class="product-image-block rounded mb-2 flex-grow-0" style="height: 140px; min-height: 140px; background: var(--v-theme-surface-variant); overflow: hidden; flex-shrink: 0;">
                         <v-img
                           v-if="p.image_url || (p as { image?: string }).image"

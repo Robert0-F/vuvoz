@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card class="rounded-lg vuvoz-content-card" elevation="1">
     <v-card-title class="d-flex align-center">
       <span>{{ title }}</span>
       <v-spacer />
@@ -98,7 +98,7 @@ const statusOptions = [
   { title: 'Все', value: 'all' },
   { title: 'Новые', value: 'new' },
   { title: 'Принятые', value: 'accepted' },
-  { title: 'Завершеные', value: 'completed' },
+  { title: 'Завершённые', value: 'completed' },
 ]
 
 const headers = computed(() => {

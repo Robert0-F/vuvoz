@@ -1,0 +1,112 @@
+// Keyframes
+@keyframes vuvoz-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes vuvoz-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vuvoz-fade-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vuvoz-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes vuvoz-shine {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes vuvoz-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+// Utility classes
+.vuvoz-fade-in {
+  animation: vuvoz-fade-in var(--vuvoz-duration) var(--vuvoz-ease) forwards;
+}
+
+.vuvoz-fade-in-up {
+  animation: vuvoz-fade-in-up var(--vuvoz-duration-slow) var(--vuvoz-ease) forwards;
+}
+
+.vuvoz-fade-in-down {
+  animation: vuvoz-fade-in-down var(--vuvoz-duration) var(--vuvoz-ease) forwards;
+}
+
+.vuvoz-scale-in {
+  animation: vuvoz-scale-in var(--vuvoz-duration) var(--vuvoz-ease) forwards;
+}
+
+// Stagger delays (use with animation classes)
+.vuvoz-delay-1 { animation-delay: 0.05s; }
+.vuvoz-delay-2 { animation-delay: 0.1s; }
+.vuvoz-delay-3 { animation-delay: 0.15s; }
+.vuvoz-delay-4 { animation-delay: 0.2s; }
+.vuvoz-delay-5 { animation-delay: 0.25s; }
+
+// Transitions for hover
+.vuvoz-transition {
+  transition: transform var(--vuvoz-duration) var(--vuvoz-ease),
+              box-shadow var(--vuvoz-duration) var(--vuvoz-ease),
+              background-color var(--vuvoz-duration) var(--vuvoz-ease);
+}
+
+.vuvoz-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--vuvoz-shadow-lg);
+}
+
+.vuvoz-hover-scale:hover {
+  transform: scale(1.02);
+}
+
+.vuvoz-card-interactive {
+  transition: transform var(--vuvoz-duration) var(--vuvoz-ease),
+              box-shadow var(--vuvoz-duration) var(--vuvoz-ease);
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--vuvoz-shadow-xl);
+  }
+}
+
+// Page transition (for router-view)
+.vuvoz-page-enter-active,
+.vuvoz-page-leave-active {
+  transition: opacity var(--vuvoz-duration-slow) var(--vuvoz-ease),
+              transform var(--vuvoz-duration-slow) var(--vuvoz-ease);
+}
+.vuvoz-page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.vuvoz-page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}

@@ -271,7 +271,9 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='complete')
     def complete(self, request, pk=None):
-        """Mark request as completed (company only). Sets actual_amount, actual_collection_date, internal_notes, actual_value."""
+        """Mark request as completed (company only). Sets actual_amount, actual_collection_date, internal_notes, actual_value.
+        If actual_material_lines is provided (multiple materials), actual_amount and actual_value are computed from it.
+        """
         req = self.get_object()
         if req.status == CollectionRequest.Status.COMPLETED:
             return Response(
@@ -280,9 +282,19 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
             )
         ser = CollectionRequestCompleteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        req.actual_amount = ser.validated_data['actual_amount']
-        req.actual_collection_date = ser.validated_data.get('actual_collection_date')
-        req.internal_notes = (ser.validated_data.get('internal_notes') or '').strip()
+        data = ser.validated_data
+        if data.get('actual_material_lines'):
+            total_kg = sum(line['amount_kg'] for line in data['actual_material_lines'])
+            total_value = sum(
+                line['amount_kg'] * PriceList.get_current_price(line['material_type'])
+                for line in data['actual_material_lines']
+            )
+            req.actual_amount = total_kg
+            req.actual_value = total_value
+        else:
+            req.actual_amount = data['actual_amount']
+        req.actual_collection_date = data.get('actual_collection_date')
+        req.internal_notes = (data.get('internal_notes') or '').strip()
         req.status = CollectionRequest.Status.COMPLETED
         req.save()
         return Response(CollectionRequestSerializer(req, context={'request': request}).data)

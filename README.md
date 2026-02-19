@@ -4,7 +4,7 @@
 
 ## Возможности
 
-- **Публичная главная страница** — лента новостей, описание сервиса, регистрация учреждений (заявка), вход
+- **Публичная главная страница** — hero, интерактивный калькулятор доходности, для кого / как работает / преимущества, отзывы, новости, финальный CTA, регистрация учреждений
 - **Роли пользователей**: Администратор, Компания, Учреждение
 - **Компании** — управление профилем, учреждениями, заявками, статистика
 - **Учреждения** — создание заявок на вывоз, просмотр своей статистики
@@ -96,7 +96,7 @@ pytest tests/ -v
 
 - [DEPLOYMENT.md](DEPLOYMENT.md) — развёртывание, Nginx, Gunicorn, Docker
 - [API_DOCS.md](API_DOCS.md) — описание всех API-эндпоинтов
-- [PROJECT_STATUS.md](PROJECT_STATUS.md) — статус проекта, известные проблемы
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) — статус проекта, известные проблемы, [Future Ideas / Roadmap](PROJECT_STATUS.md#future-ideas--roadmap)
 - [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md) — чек-лист ручной проверки интерфейса
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — если Vue не подключается к Django, страницы не загружаются
 - [docs/STATISTICS_LOGIC.md](docs/STATISTICS_LOGIC.md) — логика статистики в админке (откуда данные, период по созданию/завершению)

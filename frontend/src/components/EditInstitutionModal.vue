@@ -1,6 +1,6 @@
 <template>
-  <v-dialog v-model="isOpen" max-width="600" persistent @click:outside="close">
-    <v-card>
+  <v-dialog v-model="isOpen" max-width="600" persistent transition="dialog-transition" @click:outside="close">
+    <v-card class="rounded-xl">
       <v-card-title>{{ companyEditOnly ? 'Дополнительная информация (адрес, контакты, заметка)' : 'Редактирование организации' }}</v-card-title>
       <v-divider />
       <v-card-text>

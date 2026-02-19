@@ -1,340 +1,189 @@
 <template>
-  <div class="homepage">
-    <v-app-bar color="primary" density="compact" elevation="0" class="px-4 py-2">
-      <v-app-bar-title class="text-h6 font-weight-bold pl-2">
-        Вывоз макулатуры
-      </v-app-bar-title>
-      <v-spacer />
-      <v-btn variant="text" @click="scrollTo('home')">Главная</v-btn>
-      <v-btn variant="text" @click="scrollTo('who')">С кем работаем</v-btn>
-      <v-btn variant="text" @click="scrollTo('how')">Как работаем</v-btn>
-      <v-btn variant="text" @click="scrollTo('news')">Новости</v-btn>
-      <v-btn variant="text" @click="scrollTo('contact')">Контакты</v-btn>
-      <v-btn
-        variant="outlined"
-        color="primary"
-        class="mr-2"
-        @click="openRegistrationDialog"
-      >
-        Регистрация
-      </v-btn>
-      <v-btn color="secondary" variant="elevated" @click="goToLogin">
-        Войти
-      </v-btn>
-    </v-app-bar>
+  <div class="home-page">
+    <header class="home-nav">
+      <div class="home-nav__inner">
+        <a href="/" class="home-nav__logo">Vuvoz</a>
+        <button
+          type="button"
+          class="home-nav__burger"
+          aria-label="Меню"
+          :aria-expanded="mobileMenuOpen"
+          @click="mobileMenuOpen = !mobileMenuOpen"
+        >
+          <span /><span /><span />
+        </button>
+        <nav class="home-nav__links" :class="{ 'home-nav__links--open': mobileMenuOpen }">
+          <a href="#" @click.prevent="scrollTo('calculator'); mobileMenuOpen = false">Калькулятор</a>
+          <a href="#" @click.prevent="scrollTo('for-whom'); mobileMenuOpen = false">Для кого</a>
+          <a href="#" @click.prevent="scrollTo('how'); mobileMenuOpen = false">Как работает</a>
+          <a href="#" @click.prevent="scrollTo('benefits'); mobileMenuOpen = false">Преимущества</a>
+          <a href="#" @click.prevent="scrollTo('news'); mobileMenuOpen = false">Новости</a>
+          <a href="#" @click.prevent="scrollTo('cta'); mobileMenuOpen = false">Контакты</a>
+        </nav>
+        <div class="home-nav__actions">
+          <button type="button" class="home-nav__btn home-nav__btn--outline" @click="openRegistrationDialog">
+            Регистрация
+          </button>
+          <button type="button" class="home-nav__btn home-nav__btn--primary" @click="goToLogin">
+            Войти
+          </button>
+        </div>
+      </div>
+    </header>
 
-    <v-main>
-      <!-- Hero -->
-      <section ref="homeRef" class="hero py-16 pa-4">
-        <v-container>
-          <v-row align="center" justify="center">
-            <v-col cols="12" md="10" class="text-center">
-              <h1 class="hero-title text-h3 text-md-h2 font-weight-bold mb-4">
-                Помогаем организациям эффективно управлять отходами
-              </h1>
-              <p class="hero-subtitle text-h6 text-md-h5 text-medium-emphasis mb-8">
-                Вывоз и переработка макулатуры. Удобные заявки, прозрачный учёт и зелёные баллы для учреждений.
-              </p>
-              <div class="d-flex flex-wrap justify-center gap-3">
-                <v-btn
-                  size="large"
-                  color="primary"
-                  variant="elevated"
-                  @click="goToLogin"
-                >
-                  Войти в личный кабинет
-                </v-btn>
-                <v-btn
-                  size="large"
-                  variant="outlined"
-                  color="primary"
-                  @click="openRegistrationDialog"
-                >
-                  Зарегистрировать учреждение
-                </v-btn>
-              </div>
-            </v-col>
-          </v-row>
-        </v-container>
+    <main>
+      <HomeHero
+        @scroll-to-calculator="scrollTo('calculator')"
+        @scroll-to-process="scrollTo('how')"
+      />
+      <section id="calculator" ref="calculatorRef">
+        <HomeCalculator />
       </section>
-
-      <!-- С кем мы работаем -->
-      <section ref="whoRef" class="py-12 bg-surface-variant pa-4">
-        <v-container>
-          <h2 class="text-h4 text-md-h3 font-weight-bold mb-8 text-center">
-            С кем мы работаем
-          </h2>
-          <v-row>
-            <v-col v-for="card in whoWeWorkWith" :key="card.title" cols="12" sm="6" md="3">
-              <v-card variant="flat" class="pa-4 h-100 rounded-lg" elevation="1">
-                <v-icon size="40" color="primary" class="mb-3">{{ card.icon }}</v-icon>
-                <h3 class="text-h6 font-weight-medium mb-2">{{ card.title }}</h3>
-                <p class="text-body-2 text-medium-emphasis">{{ card.text }}</p>
-              </v-card>
-            </v-col>
-          </v-row>
-        </v-container>
+      <section id="for-whom" ref="forWhomRef">
+        <HomeForWhom @scroll-to-contact="scrollTo('cta')" />
       </section>
-
-      <!-- Как мы работаем -->
-      <section ref="howRef" class="py-12 pa-4">
-        <v-container>
-          <h2 class="text-h4 text-md-h3 font-weight-bold mb-8 text-center">
-            Как мы работаем
-          </h2>
-          <v-row align="stretch">
-            <v-col
-              v-for="(step, i) in howWeWork"
-              :key="step.title"
-              cols="12"
-              md="3"
-            >
-              <v-card variant="outlined" class="pa-4 h-100 d-flex flex-column rounded-lg">
-                <span class="step-num text-h4 font-weight-bold text-primary mb-3">{{ i + 1 }}</span>
-                <h3 class="text-h6 font-weight-medium mb-2">{{ step.title }}</h3>
-                <p class="text-body-2 text-medium-emphasis flex-grow-1">{{ step.text }}</p>
-              </v-card>
-            </v-col>
-          </v-row>
-        </v-container>
+      <section id="how" ref="howRef">
+        <HomeHowItWorks />
       </section>
-
-      <!-- Новости -->
-      <section ref="newsRef" class="py-12 bg-surface-variant pa-4">
-        <v-container>
-          <h2 class="text-h4 text-md-h3 font-weight-bold mb-8 text-center">
-            Новости
-          </h2>
-          <v-row v-if="loadingNews">
-            <v-col cols="12" class="text-center">
-              <v-progress-circular indeterminate color="primary" size="48" />
-            </v-col>
-          </v-row>
-          <v-row v-else-if="news.length === 0">
-            <v-col cols="12" class="text-center text-medium-emphasis">
-              Пока нет новостей.
-            </v-col>
-          </v-row>
-          <v-row v-else>
-            <v-col
-              v-for="article in news"
-              :key="article.id"
-              cols="12"
-              sm="6"
-              md="4"
-            >
-              <v-card
-                class="h-100 d-flex flex-column rounded-lg"
-                variant="flat"
-                elevation="1"
-                hover
-                @click="goToNews(article.id)"
-              >
-                <v-img
-                  v-if="article.image_url"
-                  :src="article.image_url"
-                  height="180"
-                  cover
-                  class="rounded-t-lg"
-                  gradient="to bottom, rgba(0,0,0,0), rgba(0,0,0,0.2)"
-                />
-                <v-img
-                  v-else
-                  src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Crect fill='%23e8f5e9' width='400' height='200'/%3E%3Ctext fill='%23666' font-family='sans-serif' font-size='18' x='50%25' y='50%25' text-anchor='middle' dy='.3em'%3ENет изображения%3C/text%3E%3C/svg%3E"
-                  height="180"
-                  cover
-                  class="rounded-t-lg"
-                />
-                <v-card-title class="text-subtitle-1 font-weight-bold pt-3">
-                  {{ article.title }}
-                </v-card-title>
-                <v-card-text class="flex-grow-1 text-body-2 text-medium-emphasis">
-                  {{ article.excerpt }}
-                </v-card-text>
-                <v-card-actions class="pt-0">
-                  <span class="text-caption text-medium-emphasis">
-                    {{ formatDate(article.created_at) }}
-                  </span>
-                  <v-spacer />
-                  <v-btn variant="text" color="primary" size="small">
-                    Читать далее
-                  </v-btn>
-                </v-card-actions>
-              </v-card>
-            </v-col>
-          </v-row>
-        </v-container>
+      <section id="benefits" ref="benefitsRef">
+        <HomeBenefits />
       </section>
-
-      <!-- Контакты и CTA -->
-      <section ref="contactRef" class="py-12 pa-4">
-        <v-container>
-          <h2 class="text-h4 text-md-h3 font-weight-bold mb-6 text-center">
-            Хотите подключить учреждение?
-          </h2>
-          <v-row justify="center">
-            <v-col cols="12" md="8" class="text-center">
-              <p class="text-body-1 text-medium-emphasis mb-6">
-                Оставьте заявку на регистрацию — администратор свяжется с вами и подключит организацию к сервису вывоза макулатуры.
-              </p>
-              <v-btn
-                size="large"
-                color="primary"
-                variant="elevated"
-                @click="openRegistrationDialog"
-              >
-                Зарегистрировать учреждение
-              </v-btn>
-              <p class="text-body-2 text-medium-emphasis mt-6">
-                Уже есть доступ? <v-btn variant="text" color="primary" size="small" @click="goToLogin">Войти</v-btn>
-              </p>
-            </v-col>
-          </v-row>
-        </v-container>
+      <section id="testimonials" ref="testimonialsRef">
+        <HomeTestimonials />
       </section>
+      <section id="home-news" ref="newsRef">
+        <HomeNews />
+      </section>
+      <section id="cta" ref="ctaRef">
+        <HomeFinalCta
+          @register="openRegistrationDialog"
+          @scroll-to-calculator="scrollTo('calculator')"
+        />
+      </section>
+    </main>
 
-      <v-footer class="mt-auto">
-        <v-container>
-          <div class="text-center text-body-2 text-medium-emphasis">
-            © {{ new Date().getFullYear() }} Сервис вывоза макулатуры
+    <footer class="home-footer">
+      <div class="home-footer__inner">
+        <span class="home-footer__copy">© {{ new Date().getFullYear() }} Vuvoz. Вывоз макулатуры и переработка.</span>
+        <div class="home-footer__links">
+          <a href="#" @click.prevent="scrollTo('calculator')">Калькулятор</a>
+          <a href="#" @click.prevent="openRegistrationDialog">Регистрация</a>
+          <a href="#" @click.prevent="goToLogin">Войти</a>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Registration modal -->
+    <Teleport to="body">
+      <div v-if="registrationDialog" class="home-modal-backdrop" @click.self="registrationDialog = false">
+        <div class="home-modal hp-card">
+          <div class="home-modal__head">
+            <h2 class="home-modal__title">Заявка на регистрацию учреждения</h2>
+            <button type="button" class="home-modal__close" aria-label="Закрыть" @click="registrationDialog = false">×</button>
           </div>
-        </v-container>
-      </v-footer>
-    </v-main>
-
-    <!-- Регистрация учреждения -->
-    <v-dialog v-model="registrationDialog" max-width="500" persistent>
-      <v-card class="rounded-lg">
-        <v-card-title class="d-flex align-center">
-          Заявка на регистрацию учреждения
-          <v-spacer />
-          <v-btn icon variant="text" @click="registrationDialog = false">
-            <v-icon>mdi-close</v-icon>
-          </v-btn>
-        </v-card-title>
-        <v-card-text>
-          <p class="text-body-2 text-medium-emphasis mb-4">
-            Заполните форму. После рассмотрения заявки администратор свяжется с вами.
-          </p>
-          <v-form ref="registrationFormRef" @submit.prevent="submitRegistration">
-            <v-text-field
+          <p class="hp-subtitle home-modal__sub">Заполните форму — администратор свяжется с вами и подключит организацию.</p>
+          <form @submit.prevent="submitRegistration">
+            <input
               v-model="registrationForm.first_name"
-              label="Имя *"
-              variant="outlined"
-              density="comfortable"
-              class="mb-3"
-              :rules="[v => !!v || 'Обязательное поле']"
+              type="text"
+              class="home-modal__input"
+              placeholder="Имя *"
+              required
             />
-            <v-text-field
+            <input
               v-model="registrationForm.patronymic"
-              label="Отчество"
-              variant="outlined"
-              density="comfortable"
-              class="mb-3"
+              type="text"
+              class="home-modal__input"
+              placeholder="Отчество"
             />
-            <v-text-field
+            <input
               v-model="registrationForm.institution_name"
-              label="Название учреждения *"
-              variant="outlined"
-              density="comfortable"
-              class="mb-3"
-              :rules="[v => !!v || 'Обязательное поле']"
+              type="text"
+              class="home-modal__input"
+              placeholder="Название учреждения *"
+              required
             />
-            <v-textarea
+            <textarea
               v-model="registrationForm.address"
-              label="Адрес *"
-              variant="outlined"
-              density="comfortable"
+              class="home-modal__input home-modal__textarea"
+              placeholder="Адрес *"
               rows="2"
-              class="mb-3"
-              :rules="[v => !!v || 'Обязательное поле']"
+              required
             />
-            <v-text-field
+            <input
               v-model="registrationForm.phone"
-              label="Телефон *"
-              variant="outlined"
-              density="comfortable"
               type="tel"
-              placeholder="+7 (999) 123-45-67"
-              :rules="[v => !!v || 'Обязательное поле']"
+              class="home-modal__input"
+              placeholder="Телефон *"
+              required
             />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="registrationDialog = false">Отмена</v-btn>
-          <v-btn
-            color="primary"
-            variant="elevated"
-            :loading="registrationSending"
-            @click="submitRegistration"
-          >
-            Отправить заявку
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+            <p v-if="registrationError" class="home-modal__error">Не удалось отправить. Попробуйте позже.</p>
+            <div class="home-modal__actions">
+              <button type="button" class="home-modal__btn home-modal__btn--secondary" @click="registrationDialog = false">
+                Отмена
+              </button>
+              <button type="submit" class="home-modal__btn home-modal__btn--primary" :disabled="registrationSending">
+                {{ registrationSending ? 'Отправка…' : 'Отправить заявку' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
 
-    <!-- Успех после регистрации -->
-    <v-snackbar v-model="registrationSuccess" color="success" :timeout="4000">
-      Заявка отправлена. Мы свяжемся с вами после рассмотрения.
-    </v-snackbar>
-    <v-snackbar v-model="registrationError" color="error" :timeout="5000">
-      Не удалось отправить заявку. Попробуйте позже.
-    </v-snackbar>
+    <Teleport to="body">
+      <div v-if="registrationSuccess" class="home-snackbar home-snackbar--success">
+        Заявка отправлена. Мы свяжемся с вами после рассмотрения.
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import type { VForm } from 'vuetify/components'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
-
-interface NewsArticle {
-  id: number
-  title: string
-  content: string
-  excerpt: string
-  image_url: string | null
-  created_at: string
-  is_published: boolean
-  author_username: string
-}
-
-const whoWeWorkWith = [
-  { title: 'Школы и детские сады', icon: 'mdi-school', text: 'Учебные заведения подключаются к раздельному сбору и получают баллы за макулатуру.' },
-  { title: 'Офисы и бизнес-центры', icon: 'mdi-office-building', text: 'Удобный вывоз бумаги и картона по заявкам с личного кабинета.' },
-  { title: 'Магазины и склады', icon: 'mdi-store', text: 'Регулярный вывоз упаковки и макулатуры по согласованному графику.' },
-  { title: 'Учреждения', icon: 'mdi-domain', text: 'Любые организации могут оставить заявку на регистрацию и вывоз.' },
-]
-
-const howWeWork = [
-  { title: 'Оставьте заявку', text: 'Зарегистрируйте учреждение на сайте или войдите в личный кабинет и создайте заявку на вывоз.' },
-  { title: 'Укажите объём', text: 'Выберите типы макулатуры и ориентировочный вес. Система проверит лимиты.' },
-  { title: 'Дождитесь вывоза', text: 'Компания-сборщик примет заявку и организует вывоз в удобное время.' },
-  { title: 'Получайте баллы', text: 'За сданную макулатуру начисляются зелёные баллы — ими можно оплатить товары каталога.' },
-]
+import HomeHero from '@/components/home/HomeHero.vue'
+import HomeCalculator from '@/components/home/HomeCalculator.vue'
+import HomeForWhom from '@/components/home/HomeForWhom.vue'
+import HomeHowItWorks from '@/components/home/HomeHowItWorks.vue'
+import HomeBenefits from '@/components/home/HomeBenefits.vue'
+import HomeTestimonials from '@/components/home/HomeTestimonials.vue'
+import HomeNews from '@/components/home/HomeNews.vue'
+import HomeFinalCta from '@/components/home/HomeFinalCta.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const userStore = useUserStore()
 
-const homeRef = ref<HTMLElement | null>(null)
-const whoRef = ref<HTMLElement | null>(null)
+const calculatorRef = ref<HTMLElement | null>(null)
+const forWhomRef = ref<HTMLElement | null>(null)
 const howRef = ref<HTMLElement | null>(null)
+const benefitsRef = ref<HTMLElement | null>(null)
+const testimonialsRef = ref<HTMLElement | null>(null)
 const newsRef = ref<HTMLElement | null>(null)
-const contactRef = ref<HTMLElement | null>(null)
+const ctaRef = ref<HTMLElement | null>(null)
 
-const news = ref<NewsArticle[]>([])
-const loadingNews = ref(true)
+function scrollTo(id: string) {
+  const map: Record<string, typeof calculatorRef> = {
+    calculator: calculatorRef,
+    'for-whom': forWhomRef,
+    how: howRef,
+    benefits: benefitsRef,
+    news: newsRef,
+    cta: ctaRef,
+  }
+  const el = map[id]?.value
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+const mobileMenuOpen = ref(false)
 const registrationDialog = ref(false)
 const registrationSending = ref(false)
 const registrationSuccess = ref(false)
 const registrationError = ref(false)
-const registrationFormRef = ref<VForm | null>(null)
 const registrationForm = reactive({
   first_name: '',
   patronymic: '',
@@ -343,39 +192,17 @@ const registrationForm = reactive({
   phone: '',
 })
 
-function scrollTo(section: string) {
-  const refs: Record<string, typeof homeRef> = {
-    home: homeRef,
-    who: whoRef,
-    how: howRef,
-    news: newsRef,
-    contact: contactRef,
-  }
-  const el = refs[section]?.value
-  if (el) el.scrollIntoView({ behavior: 'smooth' })
-}
-
-function formatDate(s: string) {
-  if (!s) return ''
-  return new Date(s).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-}
-
 function openRegistrationDialog() {
   registrationForm.first_name = ''
   registrationForm.patronymic = ''
   registrationForm.institution_name = ''
   registrationForm.address = ''
   registrationForm.phone = ''
+  registrationError.value = false
   registrationDialog.value = true
 }
 
 async function submitRegistration() {
-  const valid = await registrationFormRef.value?.validate()
-  if (!valid?.valid) return
   registrationSending.value = true
   registrationError.value = false
   try {
@@ -388,27 +215,12 @@ async function submitRegistration() {
     })
     registrationSuccess.value = true
     registrationDialog.value = false
+    setTimeout(() => { registrationSuccess.value = false }, 4000)
   } catch {
     registrationError.value = true
   } finally {
     registrationSending.value = false
   }
-}
-
-async function loadNews() {
-  loadingNews.value = true
-  try {
-    const { data } = await api.get<NewsArticle[]>('/news/')
-    news.value = Array.isArray(data) ? data : []
-  } catch {
-    news.value = []
-  } finally {
-    loadingNews.value = false
-  }
-}
-
-function goToNews(id: number) {
-  router.push({ name: 'NewsDetail', params: { id: String(id) } })
 }
 
 async function goToLogin() {
@@ -423,20 +235,274 @@ async function goToLogin() {
     router.push({ name: 'Login' })
   }
 }
-
-onMounted(() => {
-  loadNews()
-})
 </script>
 
-<style scoped>
-.hero-title {
-  line-height: 1.2;
+<style scoped lang="scss">
+.home-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--vuvoz-border);
 }
-.hero-subtitle {
-  line-height: 1.4;
+
+.home-nav__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
 }
-.step-num {
+
+.home-nav__logo {
+  font-family: var(--hp-font-heading);
+  font-weight: 800;
+  font-size: 1.35rem;
+  color: var(--vuvoz-primary);
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.home-nav__burger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--vuvoz-text);
+    border-radius: 1px;
+  }
+}
+
+.home-nav__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  a {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--vuvoz-text);
+    text-decoration: none;
+    padding: 0.35rem 0.5rem;
+    border-radius: 8px;
+    &:hover { color: var(--vuvoz-primary); background: rgba(13, 148, 136, 0.06); }
+  }
+}
+
+.home-nav__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.home-nav__btn {
+  font-family: var(--hp-font-heading);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: background 0.2s, color 0.2s;
+
+  &--outline {
+    border-color: var(--vuvoz-primary);
+    background: transparent;
+    color: var(--vuvoz-primary);
+    &:hover { background: rgba(13, 148, 136, 0.08); }
+  }
+
+  &--primary {
+    background: var(--vuvoz-primary);
+    color: #fff;
+    &:hover { background: #0f766e; }
+  }
+}
+
+@media (max-width: 768px) {
+  .home-nav__burger { display: flex; }
+  .home-nav__links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-bottom: 1px solid var(--vuvoz-border);
+    flex-direction: column;
+    padding: 1rem;
+    &--open {
+      display: flex;
+    }
+  }
+  .home-nav__actions .home-nav__btn--outline { display: none; }
+}
+
+.home-footer {
+  background: var(--vuvoz-text);
+  color: rgba(255, 255, 255, 0.8);
+  padding: 1.5rem;
+}
+
+.home-footer__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.home-footer__copy {
+  font-size: 0.9rem;
+}
+
+.home-footer__links {
+  display: flex;
+  gap: 1rem;
+  a {
+    color: rgba(255, 255, 255, 0.8);
+    text-decoration: none;
+    font-size: 0.9rem;
+    &:hover { color: #fff; }
+  }
+}
+
+.home-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.home-modal {
+  background: #fff;
+  padding: 2rem;
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.home-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.home-modal__title {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.home-modal__close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: var(--vuvoz-surface-muted);
+  border-radius: 8px;
+  font-size: 1.5rem;
   line-height: 1;
+  cursor: pointer;
+  color: var(--vuvoz-text);
+  &:hover { background: var(--vuvoz-border); }
+}
+
+.home-modal__sub {
+  margin: 0 0 1.5rem;
+  font-size: 0.9rem;
+}
+
+.home-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.home-modal__input {
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 2px solid var(--vuvoz-border);
+  font-size: 1rem;
+  &:focus {
+    outline: none;
+    border-color: var(--vuvoz-primary);
+  }
+}
+
+.home-modal__textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.home-modal__error {
+  color: #dc2626;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.home-modal__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.home-modal__btn {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  &--primary {
+    background: var(--vuvoz-primary);
+    color: #fff;
+  }
+  &--secondary {
+    background: var(--vuvoz-surface-muted);
+    color: var(--vuvoz-text);
+  }
+}
+
+.home-snackbar {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 500;
+  z-index: 10000;
+  box-shadow: var(--vuvoz-shadow-xl);
+  animation: snackbarIn 0.3s ease;
+
+  &--success {
+    background: #059669;
+    color: #fff;
+  }
+}
+
+@keyframes snackbarIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 </style>

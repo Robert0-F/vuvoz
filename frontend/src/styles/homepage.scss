@@ -1,0 +1,65 @@
+// Homepage-specific design system (Linear/Stripe-inspired)
+@use './variables.scss';
+
+$font-heading: 'Plus Jakarta Sans', system-ui, sans-serif;
+$font-body: 'Inter', system-ui, sans-serif;
+
+.home-page {
+  --hp-font-heading: #{$font-heading};
+  --hp-font-body: #{$font-body};
+  font-family: $font-body;
+  color: var(--vuvoz-text);
+
+  h1, h2, h3, .text-h1, .text-h2, .text-h3, .text-h4, .text-h5, .text-h6 {
+    font-family: $font-heading;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--vuvoz-text);
+  }
+
+  .hp-headline {
+    font-family: $font-heading;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .hp-section-title {
+    font-family: $font-heading;
+    font-weight: 700;
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    letter-spacing: -0.02em;
+    color: var(--vuvoz-text);
+  }
+
+  .hp-subtitle {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    color: var(--vuvoz-text-secondary);
+    line-height: 1.6;
+  }
+
+  .hp-card {
+    border-radius: var(--vuvoz-radius-lg);
+    box-shadow: var(--vuvoz-shadow);
+    transition: transform 0.25s var(--vuvoz-ease), box-shadow 0.25s var(--vuvoz-ease);
+    &:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--vuvoz-shadow-xl);
+    }
+  }
+
+  .hp-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .hp-anim-in {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s var(--vuvoz-ease), transform 0.6s var(--vuvoz-ease);
+    &.hp-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

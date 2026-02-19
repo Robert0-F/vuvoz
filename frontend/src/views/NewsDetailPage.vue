@@ -1,15 +1,15 @@
 <template>
-  <div>
-    <v-app-bar color="primary" density="compact" elevation="2" class="px-4 py-2">
+  <div class="news-detail-page">
+    <v-app-bar color="primary" density="compact" elevation="0" class="px-4 py-2">
       <v-btn variant="text" icon="mdi-arrow-left" @click="goBack" />
       <v-app-bar-title class="pl-2">Новости</v-app-bar-title>
       <v-spacer />
-      <v-btn variant="elevated" color="secondary" @click="goToLogin">
+      <v-btn variant="elevated" color="secondary" class="vuvoz-transition" @click="goToLogin">
         Войти
       </v-btn>
     </v-app-bar>
 
-    <v-main>
+    <v-main class="bg-surface-variant">
       <v-container v-if="loading" class="py-12">
         <v-row justify="center">
           <v-col cols="12" class="text-center">
@@ -18,27 +18,29 @@
         </v-row>
       </v-container>
       <v-container v-else-if="article" class="py-8">
-        <v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-4" @click="goBack">
-          К списку новостей
-        </v-btn>
-        <v-card variant="outlined" class="pa-4 pa-md-8">
-          <h1 class="text-h4 font-weight-bold mb-4">{{ article.title }}</h1>
-          <div class="text-caption text-medium-emphasis mb-4">
-            {{ formatDate(article.created_at) }}
-            <span v-if="article.author_username"> · {{ article.author_username }}</span>
-          </div>
-          <v-img
-            v-if="article.image_url"
-            :src="article.image_url"
-            max-height="400"
-            cover
-            class="rounded-lg mb-6"
-          />
-          <div class="text-body-1" style="white-space: pre-wrap;">{{ article.content }}</div>
-        </v-card>
+        <AppFadeIn direction="up">
+          <v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-4" @click="goBack">
+            К списку новостей
+          </v-btn>
+          <v-card variant="flat" class="news-article-card pa-4 pa-md-8" elevation="1">
+            <h1 class="vuvoz-section-title text-h4 mb-4">{{ article.title }}</h1>
+            <div class="text-caption text-medium-emphasis mb-4">
+              {{ formatDate(article.created_at) }}
+              <span v-if="article.author_username"> · {{ article.author_username }}</span>
+            </div>
+            <v-img
+              v-if="article.image_url"
+              :src="article.image_url"
+              max-height="400"
+              cover
+              class="rounded-lg mb-6"
+            />
+            <div class="text-body-1 article-content">{{ article.content }}</div>
+          </v-card>
+        </AppFadeIn>
       </v-container>
       <v-container v-else class="py-12">
-        <v-alert type="warning">
+        <v-alert type="warning" class="rounded-lg">
           Статья не найдена.
         </v-alert>
         <v-btn class="mt-4" @click="goBack">На главную</v-btn>
@@ -49,6 +51,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import AppFadeIn from '@/components/AppFadeIn.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
@@ -117,3 +120,14 @@ onMounted(() => {
   loadArticle()
 })
 </script>
+
+<style scoped>
+.news-article-card {
+  border-radius: var(--vuvoz-radius-lg);
+  box-shadow: var(--vuvoz-shadow);
+}
+.article-content {
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+</style>
