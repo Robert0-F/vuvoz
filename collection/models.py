@@ -110,6 +110,7 @@ class CollectionRequest(models.Model):
         NEW = 'new', 'New'
         ACCEPTED = 'accepted', 'Accepted'
         COMPLETED = 'completed', 'Completed'
+        CANCELLED = 'cancelled', 'Cancelled'
 
     class Urgency(models.TextChoices):
         LOW = 'low', 'Low'

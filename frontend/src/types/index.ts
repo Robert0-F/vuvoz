@@ -34,6 +34,8 @@ export interface InstitutionProfile {
   id: number
   parent_company: number
   parent_company_name: string
+  parent_company_contact_phone?: string
+  parent_company_contact_email?: string
   institution_name: string
   address: string
   contact_person: string
@@ -71,7 +73,7 @@ export interface PointsHistoryItem {
   reference: string
 }
 
-export type RequestStatus = 'new' | 'accepted' | 'completed'
+export type RequestStatus = 'new' | 'accepted' | 'completed' | 'cancelled'
 export type Urgency = 'low' | 'medium' | 'high'
 export type MaterialType = 'paper' | 'cardboard' | 'newspapers' | 'mixed' | 'archive'
 

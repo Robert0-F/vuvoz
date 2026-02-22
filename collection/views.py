@@ -238,6 +238,8 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
         perms = [IsAuthenticated]
         if self.action == 'create':
             perms.append(IsInstitutionUser)
+        elif self.action == 'cancel':
+            perms.extend([CanViewRequest, IsInstitutionUser])
         else:
             perms.append(CanViewRequest)
         if self.action in ('update', 'partial_update', 'complete'):
@@ -296,6 +298,24 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
         req.actual_collection_date = data.get('actual_collection_date')
         req.internal_notes = (data.get('internal_notes') or '').strip()
         req.status = CollectionRequest.Status.COMPLETED
+        req.save()
+        return Response(CollectionRequestSerializer(req, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        """Cancel request (institution only). Allowed when status is new or accepted."""
+        req = self.get_object()
+        if req.status == CollectionRequest.Status.COMPLETED:
+            return Response(
+                {'detail': 'Нельзя отменить завершённую заявку.'},
+                status=400,
+            )
+        if req.status == CollectionRequest.Status.CANCELLED:
+            return Response(
+                {'detail': 'Заявка уже отменена.'},
+                status=400,
+            )
+        req.status = CollectionRequest.Status.CANCELLED
         req.save()
         return Response(CollectionRequestSerializer(req, context={'request': request}).data)
 

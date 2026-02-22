@@ -177,6 +177,12 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
     parent_company_name = serializers.CharField(
         source='parent_company.company_name', read_only=True
     )
+    parent_company_contact_phone = serializers.CharField(
+        source='parent_company.contact_phone', read_only=True, default=''
+    )
+    parent_company_contact_email = serializers.EmailField(
+        source='parent_company.contact_email', read_only=True, default=''
+    )
 
     class Meta:
         model = InstitutionProfile
@@ -184,6 +190,8 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
             'id',
             'parent_company',
             'parent_company_name',
+            'parent_company_contact_phone',
+            'parent_company_contact_email',
             'institution_name',
             'address',
             'contact_person',

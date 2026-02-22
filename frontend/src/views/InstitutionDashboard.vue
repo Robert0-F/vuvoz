@@ -1,421 +1,301 @@
 <template>
-  <div>
-    <v-app-bar color="primary" density="compact" class="px-4 py-2">
-      <v-app-bar-title class="pl-2">Организация</v-app-bar-title>
-      <v-spacer />
-      <v-menu location="bottom">
-        <template #activator="{ props: menuProps }">
-          <v-btn v-bind="menuProps" variant="text" icon="mdi-bell">
-            <v-badge v-if="unreadCount > 0" :content="unreadCount" color="error" />
-          </v-btn>
-        </template>
-        <v-list max-height="320" style="overflow-y: auto">
-          <v-list-item
-            v-for="n in notifications"
-            :key="n.id"
-            :title="n.title"
-            :subtitle="n.message"
-            :class="{ 'bg-grey-lighten-3': !n.read }"
-            @click="markNotificationRead(n.id)"
+  <div class="inst-dashboard">
+    <header class="inst-dashboard__header">
+      <div class="inst-dashboard__header-inner">
+        <div class="inst-dashboard__brand">Vuvoz</div>
+        <nav class="inst-dashboard__nav">
+          <button
+            type="button"
+            class="inst-dashboard__tab"
+            :class="{ 'inst-dashboard__tab--active': mainTab === 'requests' }"
+            @click="mainTab = 'requests'"
+          >
+            Заявки
+          </button>
+          <button
+            type="button"
+            class="inst-dashboard__tab"
+            :class="{ 'inst-dashboard__tab--active': mainTab === 'stats' }"
+            @click="mainTab = 'stats'"
+          >
+            Статистика
+          </button>
+          <button
+            type="button"
+            class="inst-dashboard__tab"
+            :class="{ 'inst-dashboard__tab--active': mainTab === 'points' }"
+            @click="mainTab = 'points'"
+          >
+            Баллы
+          </button>
+        </nav>
+        <div class="inst-dashboard__actions">
+          <InstitutionNotifications
+            :items="notifications"
+            :unread-count="unreadCount"
+            @mark-read="markNotificationRead"
+            @mark-all-read="markAllNotificationsRead"
           />
-          <v-list-item v-if="!notifications.length" title="Нет уведомлений" />
-          <v-list-item v-if="notifications.length" title="Прочитать все" @click="markAllNotificationsRead" />
-        </v-list>
-      </v-menu>
-      <span class="mr-2">{{ userStore.user?.username }}</span>
-      <v-btn variant="text" icon="mdi-logout" @click="logout" />
-    </v-app-bar>
+          <div class="inst-dashboard__profile" ref="profileRef">
+            <button
+              type="button"
+              class="inst-dashboard__profile-btn"
+              @click="profileMenuOpen = !profileMenuOpen"
+            >
+              <span class="inst-dashboard__avatar">{{ avatarText }}</span>
+              <span class="inst-dashboard__username">{{ userStore.user?.username }}</span>
+              <v-icon icon="mdi-chevron-down" size="20" :class="{ 'inst-dashboard__chevron--open': profileMenuOpen }" />
+            </button>
+            <div v-show="profileMenuOpen" class="inst-dashboard__profile-menu">
+              <button type="button" @click="showEditProfile = true; profileMenuOpen = false">
+                Изменить контакты
+              </button>
+              <button type="button" @click="logout">
+                Выйти
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
 
-    <v-main class="pa-50 bg-surface-variant">
-      <v-container fluid class="pa-0 pa-sm-4">
-        <v-tabs v-model="mainTab" class="mb-4" color="primary">
-          <v-tab value="requests">Заявки на вывоз</v-tab>
-          <v-tab value="points">Зелёные баллы</v-tab>
-        </v-tabs>
+    <main class="inst-dashboard__main">
+      <div class="inst-dashboard__container">
+        <!-- Summary cards (visible on requests tab) -->
+        <section v-if="mainTab === 'requests'" class="inst-dashboard__summary">
+          <InstitutionStatCard
+            title="Мои заявки"
+            :value="requests.length"
+            icon="mdi-file-document-multiple"
+            color="primary"
+          />
+          <InstitutionStatCard
+            title="Вывезено (кг)"
+            :value="totalWeightDisplay"
+            icon="mdi-weight-kilogram"
+            color="info"
+          />
+          <InstitutionStatCard
+            title="Зелёные баллы"
+            :value="pointsBalance"
+            icon="mdi-leaf"
+            color="success"
+            subtitle="На балансе"
+          />
+        </section>
 
-        <v-window v-model="mainTab">
-          <v-window-item value="requests">
-        <!-- Institution info -->
-        <v-card class="mb-6 rounded-lg vuvoz-content-card" variant="tonal" elevation="1">
-          <v-card-title class="d-flex align-center">
-            Информация об организации
-            <v-spacer />
-            <v-btn variant="tonal" size="small" @click="showEditProfile = true">
-              Изменить контактные данные
-            </v-btn>
-          </v-card-title>
-          <v-card-text v-if="userStore.institutionProfile">
-            <v-row>
-              <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Название организации</div>
-                <div>{{ userStore.institutionProfile.institution_name }}</div>
-              </v-col>
-              <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Тип</div>
-                <div>{{ userStore.institutionProfile.institution_type }}</div>
-              </v-col>
-              <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Контактное лицо</div>
-                <div>{{ userStore.institutionProfile.contact_person }}</div>
-              </v-col>
-              <v-col cols="12" md="6">
-                <div class="text-subtitle-2 text-medium-emphasis">Почта / Телефон</div>
-                <div>{{ userStore.institutionProfile.email }} / {{ userStore.institutionProfile.phone }}</div>
-              </v-col>
-              <v-col cols="12">
-                <div class="text-subtitle-2 text-medium-emphasis">Адрес</div>
-                <div>{{ userStore.institutionProfile.address }}</div>
-              </v-col>
-            </v-row>
-          </v-card-text>
-        </v-card>
+        <!-- Requests tab -->
+        <template v-if="mainTab === 'requests'">
+          <!-- Compact org info -->
+          <div class="inst-dashboard__org-card">
+            <div class="inst-dashboard__org-info">
+              <h3 class="inst-dashboard__org-name">{{ userStore.institutionProfile?.institution_name }}</h3>
+              <p class="inst-dashboard__org-detail">{{ userStore.institutionProfile?.institution_type }} · {{ userStore.institutionProfile?.address }}</p>
+            </div>
+            <button type="button" class="inst-dashboard__org-edit" @click="showEditProfile = true">
+              Редактировать контакты
+            </button>
+          </div>
 
-        <!-- Stats -->
-        <v-row class="mb-6">
-          <v-col cols="12" sm="6">
-            <StatsCard title="Мои заявки" :value="requests.length" icon="mdi-file-document-multiple" color="primary" />
-          </v-col>
-          <v-col cols="12" sm="6">
-            <StatsCard title="Всего вывезено (кг)" :value="totalWeight" icon="mdi-weight-kilogram" color="info" />
-          </v-col>
-        </v-row>
+          <!-- Collecting company info -->
+          <div v-if="userStore.institutionProfile?.parent_company_name" class="inst-dashboard__company-card">
+            <h4 class="inst-dashboard__company-title">Компания вывоза</h4>
+            <p class="inst-dashboard__company-name">{{ userStore.institutionProfile?.parent_company_name }}</p>
+            <p v-if="userStore.institutionProfile?.parent_company_contact_phone" class="inst-dashboard__company-contact">
+              Тел.: {{ userStore.institutionProfile.parent_company_contact_phone }}
+            </p>
+            <p v-if="userStore.institutionProfile?.parent_company_contact_email" class="inst-dashboard__company-contact">
+              Email: {{ userStore.institutionProfile.parent_company_contact_email }}
+            </p>
+          </div>
 
-        <!-- New request form -->
-        <v-card class="mb-6 rounded-lg vuvoz-content-card" elevation="1">
-          <v-card-title>Новый запрос на вывоз</v-card-title>
-          <v-divider />
-          <v-card-text>
-            <v-form @submit.prevent="submitRequest" ref="formRef">
-              <div class="mb-4">
-                <div class="text-subtitle-2 mb-2">Типы макулатуры и вес (кг) *</div>
-                <p v-if="weightLimits" class="text-caption text-medium-emphasis mb-2">
-                  Суммарный вес: от {{ weightLimits.min_kg }} до {{ weightLimits.max_kg }} кг
-                </p>
-                <v-alert v-if="errors.material_lines" type="error" density="compact" class="mb-2">
-                  {{ errors.material_lines }}
-                </v-alert>
-                <div
-                  v-for="(line, idx) in materialLines"
-                  :key="idx"
-                  class="d-flex align-center mb-2"
-                  style="gap: 8px"
-                >
-                  <v-select
-                    v-model="line.material_type"
-                    :items="materialTypeItems"
-                    label="Тип"
-                    variant="outlined"
-                    density="compact"
-                    hide-details
-                    style="min-width: 160px"
-                  />
-                  <v-text-field
-                    v-model="line.amount_kg"
-                    label="Вес (кг)"
-                    type="number"
-                    min="1"
-                    :max="weightLimits ? weightLimits.max_kg : 100000"
-                    step="0.01"
-                    variant="outlined"
-                    density="compact"
-                    hide-details
-                    style="max-width: 120px"
-                  />
-                  <v-btn
-                    icon="mdi-delete"
-                    variant="text"
-                    color="error"
-                    size="small"
-                    :disabled="materialLines.length <= 1"
-                    @click="removeMaterialLine(idx)"
-                  />
+          <!-- New request form -->
+          <InstitutionRequestForm
+            :material-lines="materialLines"
+            :desired-date="form.desired_date"
+            :comment="form.comment"
+            :weight-limits="weightLimits"
+            :material-type-items="materialTypeItems"
+            :errors="errors"
+            :estimated-value-preview="estimatedValuePreview"
+            :submitting="submitting"
+            @submit="submitRequest"
+            @add-line="addMaterialLine"
+            @remove-line="removeMaterialLine"
+            @update:desired-date="form.desired_date = $event"
+            @update:comment="form.comment = $event"
+          />
+
+          <!-- Request grid with New/Completed tabs -->
+          <div class="inst-dashboard__section">
+            <h3 class="inst-dashboard__section-title">Заявки</h3>
+            <InstitutionRequestGrid
+              :items="requests"
+              :loading="dashboardStore.loadingRequests"
+              :institution-name="userStore.institutionProfile?.institution_name"
+              @cancelled="dashboardStore.fetchRequests()"
+            />
+          </div>
+        </template>
+
+        <!-- Stats tab -->
+        <template v-if="mainTab === 'stats'">
+          <InstitutionCharts :requests="requests" />
+        </template>
+
+        <!-- Points tab -->
+        <template v-if="mainTab === 'points'">
+          <div class="inst-dashboard__points-summary">
+            <InstitutionStatCard
+              title="Баланс зелёных баллов"
+              :value="pointsBalance"
+              icon="mdi-leaf"
+              color="success"
+              subtitle="Баллы начисляются за завершённые заявки"
+            />
+            <button type="button" class="inst-dashboard__points-history" @click="pointsHistoryModal = true">
+              История баллов
+            </button>
+          </div>
+
+          <div class="inst-dashboard__section">
+            <h3 class="inst-dashboard__section-title">Каталог товаров</h3>
+            <div v-if="loadingProducts" class="inst-dashboard__loading">
+              <v-progress-circular indeterminate color="primary" size="40" />
+            </div>
+            <div v-else-if="!products.length" class="inst-dashboard__empty">Товаров пока нет.</div>
+            <div v-else class="inst-dashboard__products">
+              <article
+                v-for="p in products"
+                :key="p.id"
+                class="inst-product-card"
+                @click="addToOrder(p)"
+              >
+                <div class="inst-product-card__img">
+                  <img v-if="productImageSrc(p)" :src="productImageSrc(p)" :alt="p.name" />
+                  <v-icon v-else icon="mdi-image-outline" size="48" color="grey" />
                 </div>
-                <v-btn variant="tonal" size="small" prepend-icon="mdi-plus" class="mt-2" @click="addMaterialLine">
-                  Добавить тип макулатуры
-                </v-btn>
+                <div class="inst-product-card__body">
+                  <h4 class="inst-product-card__name">{{ p.name }}</h4>
+                  <p class="inst-product-card__desc">{{ p.description || '—' }}</p>
+                  <div class="inst-product-card__footer">
+                    <span class="inst-product-card__price">{{ p.price_in_points }} баллов</span>
+                    <v-btn size="small" color="primary">В заказ</v-btn>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div v-if="orderItems.length" class="inst-dashboard__cart">
+              <span>В корзине: {{ orderItems.map(i => i.name + ' × ' + i.quantity).join(', ') }} · {{ orderTotal }} баллов</span>
+              <div>
+                <v-btn variant="text" size="small" @click="orderItems = []">Очистить</v-btn>
+                <v-btn color="primary" size="small" @click="openOrderDialog">Оформить заказ</v-btn>
               </div>
-              <v-row>
-                <v-col cols="12" sm="4" class="d-flex align-center">
-                  <span v-if="estimatedValuePreview != null" class="text-body-1">
-                    Примерная стоимость: <strong>{{ estimatedValuePreview }} руб.</strong>
-                  </span>
-                </v-col>
-                <v-col cols="12" sm="3">
-                  <v-text-field v-model="form.desired_date" label="Желаемая дата вывоза" type="date" variant="outlined" density="comfortable" />
-                </v-col>
-                <v-col cols="12" sm="3" class="d-flex align-center">
-                  <v-btn type="submit" color="primary" :loading="submitting">Отправить запрос</v-btn>
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12">
-                  <v-textarea v-model="form.comment" label="Комментарий (необязательно)" variant="outlined" density="comfortable" rows="2" />
-                </v-col>
-              </v-row>
-            </v-form>
-          </v-card-text>
-        </v-card>
+            </div>
+          </div>
+        </template>
+      </div>
+    </main>
 
-        <!-- Request tabs -->
-        <v-tabs v-model="requestTab" class="mb-2">
-          <v-tab value="active">Текущие заявки</v-tab>
-          <v-tab value="completed">Завершённые заявки</v-tab>
-        </v-tabs>
-        <v-window v-model="requestTab">
-          <v-window-item value="active">
-            <v-card class="rounded-lg" elevation="1">
-              <v-card-title>Текущие заявки</v-card-title>
-              <v-divider />
-              <v-data-table
-                :headers="activeRequestHeaders"
-                :items="activeRequests"
-                :loading="loadingRequests"
-                item-value="id"
-                class="elevation-0"
-              >
-                <template #item.request_number="{ item }">{{ item.request_number || item.id }}</template>
-                <template #item.institution_name>{{ userStore.institutionProfile?.institution_name ?? '—' }}</template>
-                <template #item.phone>{{ userStore.institutionProfile?.phone ?? '—' }}</template>
-                <template #item.info>{{ userStore.institutionProfile ? [userStore.institutionProfile.address, userStore.institutionProfile.contact_person].filter(Boolean).join(' · ') : '—' }}</template>
-                <template #item.material_display="{ item }">{{ formatMaterialLines(item) }}</template>
-                <template #item.estimated_value="{ item }">{{ item.estimated_value != null ? `${item.estimated_value} руб.` : '—' }}</template>
-                <template #item.actual_value="{ item }">{{ item.actual_value != null ? `${item.actual_value} руб.` : '—' }}</template>
-                <template #item.desired_date="{ item }">{{ item.desired_date ? formatDate(item.desired_date) : '—' }}</template>
-                <template #item.status="{ item }">
-                  <v-chip :color="statusColor(item.status)" size="small">{{ statusLabel(item.status) }}</v-chip>
-                </template>
-                <template #item.created_at="{ item }">{{ formatDate(item.created_at) }}</template>
-              </v-data-table>
-            </v-card>
-          </v-window-item>
-          <v-window-item value="completed">
-            <v-card class="rounded-lg" elevation="1">
-              <v-card-title>Завершённые заявки</v-card-title>
-              <v-divider />
-              <v-data-table
-                :headers="completedRequestHeaders"
-                :items="completedRequests"
-                :loading="loadingRequests"
-                item-value="id"
-                class="elevation-0"
-              >
-                <template #item.request_number="{ item }">{{ item.request_number || item.id }}</template>
-                <template #item.institution_name>{{ userStore.institutionProfile?.institution_name ?? '—' }}</template>
-                <template #item.phone>{{ userStore.institutionProfile?.phone ?? '—' }}</template>
-                <template #item.info>{{ userStore.institutionProfile ? [userStore.institutionProfile.address, userStore.institutionProfile.contact_person].filter(Boolean).join(' · ') : '—' }}</template>
-                <template #item.material_display="{ item }">{{ formatMaterialLines(item) }}</template>
-                <template #item.actual_amount="{ item }">{{ item.actual_amount ?? '—' }}</template>
-                <template #item.actual_value="{ item }">{{ item.actual_value != null ? `${item.actual_value} руб.` : '—' }}</template>
-                <template #item.created_at="{ item }">{{ formatDate(item.created_at) }}</template>
-              </v-data-table>
-            </v-card>
-          </v-window-item>
-        </v-window>
-          </v-window-item>
+    <!-- Modals -->
+    <Teleport to="body">
+      <div v-if="showEditProfile" class="inst-modal-backdrop" @click.self="showEditProfile = false">
+        <div class="inst-modal hp-card inst-modal--wide">
+          <h3 class="inst-modal__title">Изменить данные учреждения</h3>
+          <v-text-field v-model="profileEdit.institution_name" label="Название учреждения *" variant="outlined" class="mb-3" :error-messages="profileEditErrors.institution_name" />
+          <v-text-field v-model="profileEdit.contact_person" label="Контактное лицо *" variant="outlined" class="mb-3" :error-messages="profileEditErrors.contact_person" />
+          <v-text-field v-model="profileEdit.email" label="Email (логин) *" variant="outlined" type="email" class="mb-3" :error-messages="profileEditErrors.email" />
+          <v-text-field v-model="profileEdit.phone" label="Телефон *" variant="outlined" hint="7 XXX XXX XX XX или +7 XXX XXX XX XX" persistent-hint class="mb-3" :error-messages="profileEditErrors.phone" />
+          <v-text-field v-model="profileEdit.password" label="Новый пароль" variant="outlined" type="password" hint="Оставьте пустым, чтобы не менять" persistent-hint class="mb-3" :error-messages="profileEditErrors.password" />
+          <div class="inst-modal__actions">
+            <v-btn variant="text" @click="showEditProfile = false">Отмена</v-btn>
+            <v-btn color="primary" :loading="savingProfile" @click="saveProfile">Сохранить</v-btn>
+          </div>
+        </div>
+      </div>
 
-          <!-- Points tab -->
-          <v-window-item value="points">
-            <v-card class="rounded-lg elevation-1 mb-4">
-              <v-card-title class="d-flex align-center">
-                <v-icon class="mr-2" color="success">mdi-leaf</v-icon>
-                Баланс зелёных баллов
-              </v-card-title>
-              <v-card-text>
-                <div class="text-h4 font-weight-bold">{{ pointsBalance }} баллов</div>
-                <p class="text-caption text-medium-emphasis mt-1">Баллы начисляются за завершённые заявки на вывоз. Их можно потратить на товары ниже.</p>
-                <v-btn variant="tonal" class="mt-2" @click="pointsHistoryModal = true">История начислений и трат</v-btn>
-              </v-card-text>
-            </v-card>
+      <div v-if="pointsHistoryModal" class="inst-modal-backdrop" @click.self="pointsHistoryModal = false">
+        <div class="inst-modal hp-card">
+          <div class="inst-modal__header">
+            <h3 class="inst-modal__title">История баллов</h3>
+            <button type="button" class="inst-modal__close" @click="pointsHistoryModal = false">×</button>
+          </div>
+          <div class="inst-modal__body">
+            <table v-if="pointsHistory.length" class="inst-history-table">
+              <thead>
+                <tr><th>Сумма</th><th>Дата</th><th>Заявка / Заказ</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="(h, i) in pointsHistory" :key="i">
+                  <td :class="h.type === 'expense' ? 'text-error' : 'text-success'">{{ h.type === 'expense' ? h.amount : '+' + h.amount }}</td>
+                  <td>{{ formatPointsDate(h.date) }}</td>
+                  <td>{{ h.reference }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-else class="inst-modal__empty">Нет записей.</p>
+          </div>
+        </div>
+      </div>
 
-            <v-card class="rounded-lg elevation-1 mb-4">
-              <v-card-title>Каталог товаров за баллы</v-card-title>
-              <v-divider />
-              <v-card-text v-if="loadingProducts" class="text-center py-4">
-                <v-progress-circular indeterminate color="primary" />
-              </v-card-text>
-              <v-card-text v-else-if="!products.length">Товаров пока нет.</v-card-text>
-              <v-card-text v-else>
-                <v-row>
-                  <v-col v-for="p in products" :key="p.id" cols="12" sm="6" md="4">
-                    <v-card variant="flat" class="pa-3 product-card vuvoz-card-interactive d-flex flex-column rounded-lg" elevation="1" style="height: 320px;">
-                      <div class="product-image-block rounded mb-2 flex-grow-0" style="height: 140px; min-height: 140px; background: var(--v-theme-surface-variant); overflow: hidden; flex-shrink: 0;">
-                        <v-img
-                          v-if="p.image_url || (p as { image?: string }).image"
-                          :src="productImageSrc(p)"
-                          height="140"
-                          width="100%"
-                          cover
-                          style="object-fit: cover; width: 100%; height: 140px;"
-                        >
-                          <template #placeholder>
-                            <div class="d-flex align-center justify-center" style="height: 140px;">
-                              <v-icon size="40" color="grey">mdi-image-off</v-icon>
-                            </div>
-                          </template>
-                          <template #error>
-                            <div class="d-flex align-center justify-center" style="height: 140px;">
-                              <v-icon size="40" color="grey">mdi-image-broken</v-icon>
-                            </div>
-                          </template>
-                        </v-img>
-                        <div v-else class="d-flex align-center justify-center" style="height: 140px;">
-                          <v-icon size="40" color="grey-lighten-1">mdi-image-outline</v-icon>
-                        </div>
-                      </div>
-                      <div class="flex-grow-1 d-flex flex-column min-height-0">
-                        <div class="text-subtitle-1 font-weight-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ p.name }}</div>
-                        <p class="text-body-2 text-medium-emphasis mt-1 flex-grow-1" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ p.description || '—' }}</p>
-                        <div class="d-flex align-center mt-2 flex-grow-0">
-                          <span class="text-h6 text-success">{{ p.price_in_points }} баллов</span>
-                          <v-spacer />
-                          <v-btn size="small" color="primary" @click="addToOrder(p)">В заказ</v-btn>
-                        </div>
-                      </div>
-                    </v-card>
-                  </v-col>
-                </v-row>
-              </v-card-text>
-              <v-card-actions>
-                <v-btn v-if="orderItems.length" variant="text" size="small" @click="orderItems = []">Очистить корзину</v-btn>
-                <v-spacer />
-                <v-btn color="primary" :disabled="!orderItems.length" @click="openOrderDialog">Оформить заказ ({{ orderTotal }} баллов)</v-btn>
-              </v-card-actions>
-            </v-card>
-          </v-window-item>
-        </v-window>
-      </v-container>
-    </v-main>
-
-    <!-- History modal: amount — date — request -->
-    <v-dialog v-model="pointsHistoryModal" max-width="560" persistent>
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          История баллов
-          <v-spacer />
-          <v-btn icon variant="text" @click="pointsHistoryModal = false">×</v-btn>
-        </v-card-title>
-        <v-divider />
-        <v-card-text>
-          <v-table v-if="pointsHistory.length">
-            <thead>
-              <tr>
-                <th>Сумма</th>
-                <th>Дата</th>
-                <th>Заявка / Заказ</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(h, i) in pointsHistory" :key="i">
-                <td :class="h.type === 'expense' ? 'text-error' : 'text-success'">{{ h.type === 'expense' ? h.amount : '+' + h.amount }}</td>
-                <td>{{ formatPointsDate(h.date) }}</td>
-                <td>{{ h.reference }}</td>
-              </tr>
-            </tbody>
-          </v-table>
-          <p v-else class="text-medium-emphasis">Нет записей.</p>
-        </v-card-text>
-      </v-card>
-    </v-dialog>
-
-    <!-- Order form modal -->
-    <v-dialog v-model="orderDialog" max-width="560" persistent>
-      <v-card>
-        <v-card-title>Оформление заказа за баллы</v-card-title>
-        <v-divider />
-        <v-card-text>
+      <div v-if="orderDialog" class="inst-modal-backdrop" @click.self="orderDialog = false">
+        <div class="inst-modal hp-card">
+          <h3 class="inst-modal__title">Оформление заказа</h3>
+          <p class="inst-modal__sub">В заказе: {{ orderItems.map(i => i.name + ' × ' + i.quantity).join(', ') }}. Итого: {{ orderTotal }} баллов.</p>
           <v-alert v-if="orderError" type="error" density="compact" class="mb-3">{{ orderError }}</v-alert>
-          <p class="text-body-2 mb-2">В заказе: {{ orderItems.map(i => i.name + ' × ' + i.quantity).join(', ') }}. Итого: {{ orderTotal }} баллов.</p>
           <v-text-field v-model="orderForm.recipient_name" label="ФИО получателя *" variant="outlined" class="mb-2" />
           <v-text-field v-model="orderForm.recipient_phone" label="Телефон *" variant="outlined" class="mb-2" />
           <v-textarea v-model="orderForm.address" label="Адрес доставки *" variant="outlined" rows="3" />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="orderDialog = false">Отмена</v-btn>
-          <v-btn color="primary" :loading="submittingOrder" @click="submitOrder">Подтвердить заказ</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Edit profile (phone, contact person) -->
-    <v-dialog v-model="showEditProfile" max-width="480" persistent>
-      <v-card>
-        <v-card-title>Изменить контактные данные</v-card-title>
-        <v-card-text>
-          <v-text-field
-            v-model="profileEdit.contact_person"
-            label="Контактное лицо *"
-            variant="outlined"
-            class="mb-2"
-            :error-messages="profileEditErrors.contact_person"
-          />
-          <v-text-field
-            v-model="profileEdit.phone"
-            label="Телефон *"
-            variant="outlined"
-            hint="Формат: 7 XXX XXX XX XX или +7 XXX XXX XX XX"
-            persistent-hint
-            :error-messages="profileEditErrors.phone"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showEditProfile = false">Отмена</v-btn>
-          <v-btn color="primary" :loading="savingProfile" @click="saveProfile">Сохранить</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+          <div class="inst-modal__actions">
+            <v-btn variant="text" @click="orderDialog = false">Отмена</v-btn>
+            <v-btn color="primary" :loading="submittingOrder" @click="submitOrder">Подтвердить</v-btn>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
-import StatsCard from '@/components/StatsCard.vue'
+import { useInstitutionDashboardStore } from '@/stores/institutionDashboard'
+import InstitutionStatCard from '@/components/institution/InstitutionStatCard.vue'
+import InstitutionRequestForm from '@/components/institution/InstitutionRequestForm.vue'
+import InstitutionRequestGrid from '@/components/institution/InstitutionRequestGrid.vue'
+import InstitutionCharts from '@/components/institution/InstitutionCharts.vue'
+import InstitutionNotifications from '@/components/institution/InstitutionNotifications.vue'
 import type { CollectionRequest, CurrentPrice, InstitutionProfile, Product as ProductType, PointsHistoryItem } from '@/types'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const userStore = useUserStore()
+const dashboardStore = useInstitutionDashboardStore()
 
 const mainTab = ref('requests')
-const requestTab = ref('active')
-
-// Points (green points) tab
-const pointsData = ref<{ balance: string; history: PointsHistoryItem[] }>({ balance: '0', history: [] })
+const profileRef = ref<HTMLElement | null>(null)
+const profileMenuOpen = ref(false)
+const showEditProfile = ref(false)
+const profileEdit = reactive({ institution_name: '', contact_person: '', email: '', phone: '', password: '' })
+const profileEditErrors = reactive<Record<string, string>>({})
+const savingProfile = ref(false)
 const pointsHistoryModal = ref(false)
-const pointsBalance = computed(() => {
-  const b = userStore.institutionProfile?.bonus_balance
-  if (b !== undefined && b !== null) return String(b)
-  return pointsData.value.balance || '0'
-})
-const pointsHistory = computed(() => pointsData.value.history)
-const products = ref<ProductType[]>([])
-const loadingProducts = ref(false)
-const orderItems = ref<{ product_id: number; name: string; quantity: number; price: string }[]>([])
 const orderDialog = ref(false)
 const orderForm = reactive({ recipient_name: '', recipient_phone: '', address: '' })
 const orderError = ref('')
 const submittingOrder = ref(false)
-
-const orderTotal = computed(() => {
-  return orderItems.value.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0).toFixed(2)
-})
-const requests = ref<CollectionRequest[]>([])
-const loadingRequests = ref(false)
-const submitting = ref(false)
 const notifications = ref<{ id: number; title: string; message: string; read: boolean }[]>([])
 const unreadCount = ref(0)
+const products = ref<ProductType[]>([])
+const loadingProducts = ref(false)
+const orderItems = ref<{ product_id: number; name: string; quantity: number; price: string }[]>([])
 const formRef = ref<{ validate: () => Promise<{ valid: boolean }> } | null>(null)
 const currentPrices = ref<CurrentPrice[]>([])
 const weightLimits = ref<{ min_kg: string; max_kg: string } | null>(null)
-const showEditProfile = ref(false)
-const profileEdit = reactive({ contact_person: '', phone: '' })
-const profileEditErrors = reactive<Record<string, string>>({})
-const savingProfile = ref(false)
+const submitting = ref(false)
 
 const materialTypeItems = [
   { title: 'Бумага', value: 'paper' },
@@ -426,82 +306,17 @@ const materialTypeItems = [
 ]
 
 const materialLines = ref<{ material_type: string; amount_kg: string }[]>([{ material_type: 'paper', amount_kg: '' }])
-
-const form = reactive({
-  desired_date: '' as string,
-  comment: '',
-})
-
+const form = reactive({ desired_date: '', comment: '' })
 const errors = reactive<{ material_lines?: string }>({})
 
-const activeRequests = computed(() => requests.value.filter((r) => r.status !== 'completed'))
-const completedRequests = computed(() => requests.value.filter((r) => r.status === 'completed'))
-
-const activeRequestHeaders = [
-  { title: 'Номер', key: 'request_number', width: '120' },
-  { title: 'Организация', key: 'institution_name' },
-  { title: 'Телефон', key: 'phone' },
-  { title: 'Информация', key: 'info', sortable: false },
-  { title: 'Типы макулатуры', key: 'material_display', sortable: false },
-  { title: 'Вес (кг)', key: 'estimated_amount' },
-  { title: 'Ориент. стоимость', key: 'estimated_value', width: '120' },
-  { title: 'Факт. стоимость', key: 'actual_value', width: '120' },
-  { title: 'Желаемая дата', key: 'desired_date' },
-  { title: 'Статус', key: 'status' },
-  { title: 'Дата создания', key: 'created_at' },
-]
-
-const completedRequestHeaders = [
-  { title: 'Номер', key: 'request_number', width: '120' },
-  { title: 'Организация', key: 'institution_name' },
-  { title: 'Телефон', key: 'phone' },
-  { title: 'Информация', key: 'info', sortable: false },
-  { title: 'Типы макулатуры', key: 'material_display', sortable: false },
-  { title: 'Факт. вес (кг)', key: 'actual_amount' },
-  { title: 'Факт. стоимость', key: 'actual_value', width: '120' },
-  { title: 'Дата создания', key: 'created_at' },
-]
-
-const materialTypeLabels: Record<string, string> = {
-  paper: 'Бумага',
-  cardboard: 'Картон',
-  newspapers: 'Газеты',
-  mixed: 'Смешанная',
-  archive: 'Архивная',
-}
-
-function formatMaterialLines(item: CollectionRequest): string {
-  const lines = item.material_lines
-  if (lines && Array.isArray(lines) && lines.length > 0) {
-    return lines.map((l) => `${materialTypeLabels[l.material_type] || l.material_type} ${l.amount_kg} кг`).join(', ')
-  }
-  const mt = item.material_type_display || item.material_type
-  const amt = item.estimated_amount ?? item.paper_weight_kg
-  return mt && amt != null ? `${mt} ${amt} кг` : '—'
-}
-
-function formatDate(s: string) {
-  if (!s) return '—'
-  return new Date(s).toLocaleDateString('ru-RU')
-}
-
-/** Build full image URL; prefer image_url, else build from relative image path (e.g. products/photo.jpg). */
-function productImageSrc(p: { image_url?: string | null; image?: string }): string {
-  const u = p.image_url || (p.image ? `/media/${p.image.replace(/^\//, '')}` : '')
-  if (!u) return ''
-  if (u.startsWith('http://') || u.startsWith('https://')) return u
-  return window.location.origin + (u.startsWith('/') ? u : '/' + u)
-}
-
-function statusLabel(s: string) {
-  const m: Record<string, string> = { new: 'Новый', accepted: 'Принят', completed: 'Завершён' }
-  return m[s] || s
-}
-
-function statusColor(s: string) {
-  const m: Record<string, string> = { new: 'warning', accepted: 'info', completed: 'success' }
-  return m[s] || 'default'
-}
+const requests = computed(() => dashboardStore.requests)
+const pointsBalance = computed(() => {
+  const b = userStore.institutionProfile?.bonus_balance
+  if (b !== undefined && b !== null) return String(b)
+  return dashboardStore.pointsData.balance || '0'
+})
+const pointsHistory = computed(() => dashboardStore.pointsData.history)
+const totalWeightDisplay = computed(() => dashboardStore.totalWeight.toFixed(1))
 
 const estimatedValuePreview = computed(() => {
   let total = 0
@@ -517,17 +332,20 @@ const estimatedValuePreview = computed(() => {
   return total > 0 ? total.toFixed(2) : null
 })
 
-const totalWeight = computed(() => {
-  return requests.value
-    .filter((r) => r.status === 'completed')
-    .reduce((sum, r) => sum + parseFloat(String(r.actual_amount || r.estimated_amount || r.paper_weight_kg || 0)), 0)
-    .toFixed(1)
+const orderTotal = computed(() =>
+  orderItems.value.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0).toFixed(2)
+)
+
+const avatarText = computed(() => {
+  const name = userStore.institutionProfile?.institution_name || userStore.user?.username || ''
+  const parts = name.split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return (name[0] || 'О').toUpperCase()
 })
 
 function addMaterialLine() {
   materialLines.value.push({ material_type: 'paper', amount_kg: '' })
 }
-
 function removeMaterialLine(idx: number) {
   if (materialLines.value.length > 1) materialLines.value.splice(idx, 1)
 }
@@ -540,23 +358,12 @@ async function loadWeightLimits() {
     weightLimits.value = { min_kg: '100', max_kg: '100000' }
   }
 }
-
 async function loadCurrentPrices() {
   try {
     const { data } = await api.get<CurrentPrice[]>('/prices/current/')
     currentPrices.value = data
   } catch {
     currentPrices.value = []
-  }
-}
-
-async function loadRequests() {
-  loadingRequests.value = true
-  try {
-    const { data } = await api.get<CollectionRequest[]>('/collection-requests/')
-    requests.value = data
-  } finally {
-    loadingRequests.value = false
   }
 }
 
@@ -590,119 +397,22 @@ async function submitRequest() {
     materialLines.value = [{ material_type: 'paper', amount_kg: '' }]
     form.desired_date = ''
     form.comment = ''
-    await loadRequests()
+    await dashboardStore.fetchRequests()
   } catch (err: unknown) {
     const ax = err as { response?: { data?: Record<string, string | string[]> } }
     const data = ax.response?.data
     const msg = data?.material_lines ?? data?.non_field_errors
-    if (msg) {
-      errors.material_lines = Array.isArray(msg) ? msg.join(' ') : String(msg)
-    } else {
-      errors.material_lines = 'Не удалось отправить запрос.'
-    }
+    errors.material_lines = msg ? (Array.isArray(msg) ? msg.join(' ') : String(msg)) : 'Не удалось отправить запрос.'
   } finally {
     submitting.value = false
   }
 }
 
-watch(showEditProfile, (open) => {
-  if (open && userStore.institutionProfile) {
-    profileEdit.contact_person = userStore.institutionProfile.contact_person ?? ''
-    profileEdit.phone = userStore.institutionProfile.phone ?? ''
-    profileEditErrors.contact_person = ''
-    profileEditErrors.phone = ''
-  }
-})
-
-async function saveProfile() {
-  const profile = userStore.institutionProfile as (InstitutionProfile & { id: number }) | null
-  if (!profile?.id) return
-  profileEditErrors.contact_person = ''
-  profileEditErrors.phone = ''
-  if (!profileEdit.contact_person?.trim()) {
-    profileEditErrors.contact_person = 'Обязательное поле'
-    return
-  }
-  if (!profileEdit.phone?.trim()) {
-    profileEditErrors.phone = 'Обязательное поле'
-    return
-  }
-  savingProfile.value = true
-  try {
-    await api.patch(`/institutions/${profile.id}/`, {
-      contact_person: profileEdit.contact_person.trim(),
-      phone: profileEdit.phone.trim(),
-    })
-    await userStore.fetchMe()
-    showEditProfile.value = false
-  } catch (err: unknown) {
-    const ax = err as { response?: { data?: Record<string, string[]> } }
-    const d = ax.response?.data
-    if (d) {
-      if (d.contact_person) profileEditErrors.contact_person = Array.isArray(d.contact_person) ? d.contact_person.join(' ') : d.contact_person
-      if (d.phone) profileEditErrors.phone = Array.isArray(d.phone) ? d.phone.join(' ') : d.phone
-    }
-  } finally {
-    savingProfile.value = false
-  }
-}
-
-async function loadNotifications() {
-  try {
-    const { data } = await api.get<{ id: number; title: string; message: string; read: boolean }[]>('/notifications/')
-    notifications.value = data
-    unreadCount.value = data.filter((n) => !n.read).length
-  } catch {
-    // ignore
-  }
-}
-
-async function markNotificationRead(id: number) {
-  try {
-    await api.post(`/notifications/${id}/mark_read/`)
-    const n = notifications.value.find((x) => x.id === id)
-    if (n) n.read = true
-    unreadCount.value = Math.max(0, unreadCount.value - 1)
-  } catch {
-    // ignore
-  }
-}
-
-async function markAllNotificationsRead() {
-  try {
-    await api.post('/notifications/mark_all_read/')
-    notifications.value.forEach((n) => (n.read = true))
-    unreadCount.value = 0
-  } catch {
-    // ignore
-  }
-}
-
-function logout() {
-  authStore.logout()
-  userStore.clearUser()
-  router.push({ name: 'Login' })
-}
-
-async function loadPointsData() {
-  try {
-    const { data } = await api.get<{ balance: string; history: PointsHistoryItem[] }>('/me/points/')
-    pointsData.value = { balance: data.balance, history: data.history || [] }
-  } catch {
-    pointsData.value = { balance: '0', history: [] }
-  }
-}
-
-async function loadProducts() {
-  loadingProducts.value = true
-  try {
-    const { data } = await api.get<ProductType[]>('/products/')
-    products.value = data
-  } catch {
-    products.value = []
-  } finally {
-    loadingProducts.value = false
-  }
+function productImageSrc(p: { image_url?: string | null; image?: string }): string {
+  const u = p.image_url || (p.image ? `/media/${(p.image as string).replace(/^\//, '')}` : '')
+  if (!u) return ''
+  if (u.startsWith('http')) return u
+  return window.location.origin + (u.startsWith('/') ? u : '/' + u)
 }
 
 function formatPointsDate(iso: string | null) {
@@ -727,18 +437,9 @@ function openOrderDialog() {
 
 async function submitOrder() {
   orderError.value = ''
-  if (!orderForm.recipient_name?.trim()) {
-    orderError.value = 'Укажите ФИО получателя'
-    return
-  }
-  if (!orderForm.recipient_phone?.trim()) {
-    orderError.value = 'Укажите телефон'
-    return
-  }
-  if (!orderForm.address?.trim()) {
-    orderError.value = 'Укажите адрес доставки'
-    return
-  }
+  if (!orderForm.recipient_name?.trim()) { orderError.value = 'Укажите ФИО получателя'; return }
+  if (!orderForm.recipient_phone?.trim()) { orderError.value = 'Укажите телефон'; return }
+  if (!orderForm.address?.trim()) { orderError.value = 'Укажите адрес доставки'; return }
   submittingOrder.value = true
   try {
     await api.post('/points-orders/', {
@@ -750,7 +451,7 @@ async function submitOrder() {
     orderDialog.value = false
     orderItems.value = []
     await userStore.fetchMe()
-    await loadPointsData()
+    await dashboardStore.fetchPoints()
   } catch (err: unknown) {
     const ax = err as { response?: { data?: { detail?: string } } }
     orderError.value = ax.response?.data?.detail ?? 'Ошибка при оформлении заказа'
@@ -759,17 +460,549 @@ async function submitOrder() {
   }
 }
 
+watch(showEditProfile, (open) => {
+  if (open && userStore.institutionProfile) {
+    profileEdit.institution_name = userStore.institutionProfile.institution_name ?? ''
+    profileEdit.contact_person = userStore.institutionProfile.contact_person ?? ''
+    profileEdit.email = userStore.user?.username ?? userStore.institutionProfile.email ?? ''
+    profileEdit.phone = userStore.institutionProfile.phone ?? ''
+    profileEdit.password = ''
+    profileEditErrors.institution_name = ''
+    profileEditErrors.contact_person = ''
+    profileEditErrors.email = ''
+    profileEditErrors.phone = ''
+    profileEditErrors.password = ''
+  }
+})
+
+async function saveProfile() {
+  const profile = userStore.institutionProfile as (InstitutionProfile & { id: number }) | null
+  if (!profile?.id) return
+  profileEditErrors.institution_name = ''
+  profileEditErrors.contact_person = ''
+  profileEditErrors.email = ''
+  profileEditErrors.phone = ''
+  profileEditErrors.password = ''
+  if (!profileEdit.institution_name?.trim()) { profileEditErrors.institution_name = 'Обязательное поле'; return }
+  if (!profileEdit.contact_person?.trim()) { profileEditErrors.contact_person = 'Обязательное поле'; return }
+  if (!profileEdit.email?.trim()) { profileEditErrors.email = 'Обязательное поле'; return }
+  if (!profileEdit.phone?.trim()) { profileEditErrors.phone = 'Обязательное поле'; return }
+  savingProfile.value = true
+  try {
+    const payload: Record<string, string> = {
+      institution_name: profileEdit.institution_name.trim(),
+      contact_person: profileEdit.contact_person.trim(),
+      email: profileEdit.email.trim(),
+      phone: profileEdit.phone.trim(),
+    }
+    if (profileEdit.password?.trim()) payload.password = profileEdit.password.trim()
+    await api.patch(`/institutions/${profile.id}/`, payload)
+    await userStore.fetchMe()
+    showEditProfile.value = false
+  } catch (err: unknown) {
+    const ax = err as { response?: { data?: Record<string, string | string[]> } }
+    const d = ax.response?.data
+    if (d) {
+      const setErr = (key: string) => { profileEditErrors[key] = Array.isArray(d![key]) ? (d![key] as string[]).join(' ') : String(d![key]) }
+      if (d.institution_name) setErr('institution_name')
+      if (d.contact_person) setErr('contact_person')
+      if (d.email) setErr('email')
+      if (d.phone) setErr('phone')
+      if (d.password) setErr('password')
+    }
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+async function loadNotifications() {
+  try {
+    const { data } = await api.get<{ id: number; title: string; message: string; read: boolean }[]>('/notifications/')
+    notifications.value = data
+    unreadCount.value = data.filter((n) => !n.read).length
+  } catch {}
+}
+
+async function markNotificationRead(id: number) {
+  try {
+    await api.post(`/notifications/${id}/mark_read/`)
+    const n = notifications.value.find((x) => x.id === id)
+    if (n) n.read = true
+    unreadCount.value = Math.max(0, unreadCount.value - 1)
+  } catch {}
+}
+
+async function markAllNotificationsRead() {
+  try {
+    await api.post('/notifications/mark_all_read/')
+    notifications.value.forEach((n) => (n.read = true))
+    unreadCount.value = 0
+  } catch {}
+}
+
+function logout() {
+  authStore.logout()
+  userStore.clearUser()
+  router.push({ name: 'Login' })
+}
+
+function handleClickOutside(e: MouseEvent) {
+  if (profileMenuOpen.value && profileRef.value && !profileRef.value.contains(e.target as Node)) {
+    profileMenuOpen.value = false
+  }
+}
+
+async function loadProducts() {
+  loadingProducts.value = true
+  try {
+    const { data } = await api.get<ProductType[]>('/products/')
+    products.value = data
+  } catch {
+    products.value = []
+  } finally {
+    loadingProducts.value = false
+  }
+}
+
 onMounted(() => {
   loadWeightLimits()
   loadCurrentPrices()
-  loadRequests()
+  dashboardStore.fetchRequests()
   loadNotifications()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 
 watch(mainTab, (tab) => {
   if (tab === 'points') {
-    loadPointsData()
+    dashboardStore.fetchPoints()
     loadProducts()
+  }
+  if (tab === 'stats') {
+    dashboardStore.fetchStats()
   }
 })
 </script>
+
+<style scoped lang="scss">
+.inst-dashboard {
+  min-height: 100vh;
+  background: var(--vuvoz-surface);
+}
+
+.inst-dashboard__header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--vuvoz-surface-elevated);
+  border-bottom: 1px solid var(--vuvoz-border);
+  box-shadow: var(--vuvoz-shadow-sm);
+}
+
+.inst-dashboard__header-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.inst-dashboard__brand {
+  font-weight: 800;
+  font-size: 1.25rem;
+  color: var(--vuvoz-primary);
+  letter-spacing: -0.02em;
+}
+
+.inst-dashboard__nav {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.inst-dashboard__tab {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--vuvoz-text-muted);
+  border-radius: var(--vuvoz-radius-sm);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+  &:hover {
+    color: var(--vuvoz-text);
+    background: var(--vuvoz-surface-muted);
+  }
+  &--active {
+    color: var(--vuvoz-primary);
+    background: rgba(13, 148, 136, 0.08);
+  }
+}
+
+.inst-dashboard__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inst-dashboard__profile {
+  position: relative;
+}
+
+.inst-dashboard__profile-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 2px solid var(--vuvoz-border);
+  border-radius: var(--vuvoz-radius);
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--vuvoz-text);
+  transition: border-color 0.2s;
+  &:hover {
+    border-color: var(--vuvoz-primary);
+  }
+}
+
+.inst-dashboard__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--vuvoz-primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inst-dashboard__chevron--open {
+  transform: rotate(180deg);
+}
+
+.inst-dashboard__profile-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.35rem;
+  min-width: 180px;
+  padding: 0.5rem;
+  background: #fff;
+  border-radius: var(--vuvoz-radius);
+  border: 1px solid var(--vuvoz-border);
+  box-shadow: var(--vuvoz-shadow-lg);
+  z-index: 100;
+  button {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    background: none;
+    font-size: 0.9rem;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--vuvoz-radius-sm);
+    color: var(--vuvoz-text);
+    &:hover { background: var(--vuvoz-surface-muted); }
+  }
+}
+
+.inst-dashboard__main {
+  padding: 1.5rem;
+}
+
+.inst-dashboard__container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.inst-dashboard__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.inst-dashboard__org-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--vuvoz-surface-elevated);
+  border-radius: var(--vuvoz-radius-lg);
+  border: 1px solid var(--vuvoz-border);
+  margin-bottom: 1.5rem;
+}
+
+.inst-dashboard__org-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+  color: var(--vuvoz-text);
+}
+
+.inst-dashboard__org-detail {
+  font-size: 0.9rem;
+  color: var(--vuvoz-text-muted);
+  margin: 0;
+}
+
+.inst-dashboard__org-edit {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--vuvoz-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.35rem 0;
+  &:hover { text-decoration: underline; }
+}
+
+.inst-dashboard__company-card {
+  padding: 1rem 1.25rem;
+  background: var(--vuvoz-surface-muted);
+  border-radius: var(--vuvoz-radius-lg);
+  border: 1px solid var(--vuvoz-border);
+  margin-bottom: 1.5rem;
+}
+
+.inst-dashboard__company-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--vuvoz-text-muted);
+  margin: 0 0 0.5rem;
+}
+
+.inst-dashboard__company-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--vuvoz-text);
+  margin: 0 0 0.25rem;
+}
+
+.inst-dashboard__company-contact {
+  font-size: 0.9rem;
+  color: var(--vuvoz-text-muted);
+  margin: 0 0 0.15rem;
+}
+
+.inst-dashboard__section {
+  margin-top: 2rem;
+}
+
+.inst-dashboard__section-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+  color: var(--vuvoz-text);
+}
+
+.inst-dashboard__points-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.inst-dashboard__points-history {
+  padding: 0.5rem 1rem;
+  border: 2px solid var(--vuvoz-primary);
+  border-radius: var(--vuvoz-radius-sm);
+  background: transparent;
+  color: var(--vuvoz-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  &:hover { background: rgba(13, 148, 136, 0.06); }
+}
+
+.inst-dashboard__products {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.inst-product-card {
+  background: var(--vuvoz-surface-elevated);
+  border-radius: var(--vuvoz-radius-lg);
+  border: 1px solid var(--vuvoz-border);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s var(--vuvoz-ease), box-shadow 0.2s var(--vuvoz-ease);
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--vuvoz-shadow-lg);
+  }
+}
+
+.inst-product-card__img {
+  aspect-ratio: 16/10;
+  background: var(--vuvoz-surface-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.inst-product-card__body {
+  padding: 1rem;
+}
+
+.inst-product-card__name {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+  color: var(--vuvoz-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.inst-product-card__desc {
+  font-size: 0.85rem;
+  color: var(--vuvoz-text-muted);
+  margin: 0 0 1rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.inst-product-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.inst-product-card__price {
+  font-weight: 700;
+  color: #059669;
+  font-size: 1rem;
+}
+
+.inst-dashboard__loading,
+.inst-dashboard__empty {
+  text-align: center;
+  padding: 3rem;
+  color: var(--vuvoz-text-muted);
+}
+
+.inst-dashboard__cart {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--vuvoz-surface-muted);
+  border-radius: var(--vuvoz-radius);
+  font-size: 0.95rem;
+}
+
+.inst-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.inst-modal {
+  background: #fff;
+  padding: 1.5rem;
+  max-width: 440px;
+  &--wide { max-width: 480px; }
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: var(--vuvoz-radius-lg);
+  box-shadow: var(--vuvoz-shadow-xl);
+}
+
+.inst-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.inst-modal__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.inst-modal__close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: var(--vuvoz-surface-muted);
+  border-radius: var(--vuvoz-radius-sm);
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--vuvoz-text);
+}
+
+.inst-modal__sub {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  color: var(--vuvoz-text-secondary);
+}
+
+.inst-modal__body {
+  margin-bottom: 1rem;
+}
+
+.inst-modal__empty {
+  margin: 0;
+  color: var(--vuvoz-text-muted);
+  font-size: 0.9rem;
+}
+
+.inst-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.inst-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  th, td {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--vuvoz-border);
+  }
+  th {
+    font-weight: 600;
+    color: var(--vuvoz-text-muted);
+  }
+}
+</style>
