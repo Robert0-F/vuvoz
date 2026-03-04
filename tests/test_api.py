@@ -86,10 +86,19 @@ class TestAdminRole:
 
     def test_admin_can_create_price(self, admin_client):
         """IsAdministrator allows admin to create PriceList (admin-only resource)."""
-        url = reverse('pricelist-list')
+        from collection.models import Material, PriceList
         from django.utils import timezone
+        # Use a dedicated material so we don't conflict with existing PriceList for 'paper'
+        material = Material.objects.create(
+            code='test_material_price',
+            name='Тестовый материал',
+            is_active=True,
+        )
+        # Ensure no price exists for this material (clean state)
+        PriceList.objects.filter(material=material).delete()
+        url = reverse('pricelist-list')
         data = {
-            'material_type': 'paper',
+            'material': material.pk,
             'price_per_kg': '5.00',
             'valid_from': timezone.now().date().isoformat(),
         }

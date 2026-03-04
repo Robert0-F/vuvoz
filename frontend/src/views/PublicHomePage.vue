@@ -75,8 +75,8 @@
 
     <!-- Registration modal -->
     <Teleport to="body">
-      <div v-if="registrationDialog" class="home-modal-backdrop" @click.self="registrationDialog = false">
-        <div class="home-modal hp-card">
+      <div v-if="registrationDialog" class="home-modal-backdrop home-modal-backdrop--mobile" @click.self="registrationDialog = false">
+        <div class="home-modal home-modal--mobile hp-card">
           <div class="home-modal__head">
             <h2 class="home-modal__title">Заявка на регистрацию учреждения</h2>
             <button type="button" class="home-modal__close" aria-label="Закрыть" @click="registrationDialog = false">×</button>
@@ -393,6 +393,13 @@ async function goToLogin() {
   padding: 1rem;
 }
 
+@media (max-width: 768px) {
+  .home-modal-backdrop--mobile {
+    padding: 0;
+    align-items: flex-end;
+  }
+}
+
 .home-modal {
   background: #fff;
   padding: 2rem;
@@ -400,6 +407,15 @@ async function goToLogin() {
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .home-modal--mobile {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: var(--vuvoz-radius-lg) var(--vuvoz-radius-lg) 0 0;
+    padding: 1.5rem 1rem 2rem;
+  }
 }
 
 .home-modal__head {
@@ -415,8 +431,10 @@ async function goToLogin() {
 }
 
 .home-modal__close {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border: none;
   background: var(--vuvoz-surface-muted);
   border-radius: 8px;
@@ -442,7 +460,8 @@ async function goToLogin() {
   padding: 0.75rem 1rem;
   border-radius: 10px;
   border: 2px solid var(--vuvoz-border);
-  font-size: 1rem;
+  font-size: 16px;
+  min-height: 48px;
   &:focus {
     outline: none;
     border-color: var(--vuvoz-primary);

@@ -8,6 +8,27 @@ html {
   scroll-behavior: smooth;
 }
 
+// Mobile-first: avoid zoom on iOS when focusing inputs (16px)
+@media (max-width: 960px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+// Responsive table wrapper: horizontal scroll on small screens
+.vuvoz-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -1rem;
+  padding: 0 1rem;
+}
+@media (min-width: 961px) {
+  .vuvoz-table-scroll {
+    margin: 0;
+    padding: 0;
+  }
+}
+
 // Utility
 .vuvoz-container-narrow {
   max-width: 960px;

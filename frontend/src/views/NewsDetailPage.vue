@@ -130,4 +130,8 @@ onMounted(() => {
   white-space: pre-wrap;
   line-height: 1.6;
 }
+@media (max-width: 600px) {
+  .news-detail-page .v-container { padding-left: 1rem; padding-right: 1rem; }
+  .news-article-card :deep(.v-img) { max-height: 240px; }
+}
 </style>

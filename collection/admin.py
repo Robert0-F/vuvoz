@@ -10,6 +10,7 @@ from .models import (
     InstitutionProfile,
     InstitutionRegistrationRequest,
     InAppNotification,
+    Material,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
@@ -125,11 +126,19 @@ class RequestWeightLimitAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(Material)
+class MaterialAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'is_active')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'code')
+    ordering = ('name',)
+
+
 @admin.register(PriceList)
 class PriceListAdmin(admin.ModelAdmin):
-    list_display = ('material_type', 'price_per_kg', 'valid_from', 'valid_to', 'is_active', 'created_at')
-    list_filter = ('material_type', 'is_active', 'valid_from')
-    search_fields = ('material_type',)
+    list_display = ('material', 'price_per_kg', 'valid_from', 'valid_to', 'is_active', 'created_at')
+    list_filter = ('material', 'is_active', 'valid_from')
+    search_fields = ('material__name', 'material__code')
     ordering = ('-valid_from',)
 
 

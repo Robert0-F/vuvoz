@@ -12,8 +12,8 @@
 
     <v-main class="pa-50 bg-surface-variant">
       <v-container fluid class="pa-0 pa-sm-4">
-        <v-tabs v-model="activeTab" class="mb-4 vuvoz-tabs" color="primary">
-          <v-tab value="prices">Цены на макулатуру</v-tab>
+        <v-tabs v-model="activeTab" class="mb-4 vuvoz-tabs" color="primary" show-arrows>
+          <v-tab value="prices">Материалы</v-tab>
           <v-tab value="news">Новости</v-tab>
           <v-tab value="companies">Компании</v-tab>
           <v-tab value="institutions">Организации</v-tab>
@@ -26,81 +26,107 @@
         </v-tabs>
 
         <v-window v-model="activeTab">
-          <!-- Prices -->
+          <!-- Materials (prices) -->
           <v-window-item value="prices">
             <v-card class="rounded-lg vuvoz-content-card" elevation="1">
-              <v-card-title class="d-flex align-center">
-                Справочник цен (руб/кг)
+              <v-card-title class="d-flex flex-wrap align-center ga-2">
+                <span class="text-h6">Управление материалами</span>
                 <v-spacer />
+                <v-text-field
+                  v-model="materialSearch"
+                  placeholder="Поиск по названию"
+                  density="compact"
+                  hide-details
+                  clearable
+                  class="admin-materials-search"
+                  style="max-width: 220px;"
+                />
+                <v-btn variant="outlined" prepend-icon="mdi-tag-plus" @click="openMaterialDialog()">
+                  Добавить тип материала
+                </v-btn>
                 <v-btn color="primary" prepend-icon="mdi-plus" @click="openPriceDialog()">
                   Добавить цену
                 </v-btn>
               </v-card-title>
               <v-divider />
-              <v-data-table
-                :headers="priceHeaders"
-                :items="prices"
-                :loading="loadingPrices"
-                item-value="id"
-              >
-                <template #item.material_type_display="{ item }">
-                  {{ item.material_type_display || item.material_type }}
-                </template>
-                <template #item.price_per_kg="{ item }">
-                  {{ item.price_per_kg }} руб/кг
-                </template>
-                <template #item.valid_to="{ item }">
-                  {{ item.valid_to || '—' }}
-                </template>
-                <template #item.is_active="{ item }">
-                  <v-chip :color="item.is_active ? 'success' : 'default'" size="small">
-                    {{ item.is_active ? 'Да' : 'Нет' }}
-                  </v-chip>
-                </template>
-                <template #item.actions="{ item }">
-                  <v-btn size="small" variant="text" @click="openPriceDialog(item)">Изменить</v-btn>
-                  <v-btn size="small" variant="text" color="error" @click="confirmDeletePrice(item)">Удалить</v-btn>
-                </template>
-              </v-data-table>
+              <div class="overflow-x-auto">
+                <v-data-table
+                  :headers="priceHeaders"
+                  :items="filteredPrices"
+                  :loading="loadingPrices"
+                  item-value="id"
+                  class="admin-materials-table"
+                  :mobile-breakpoint="600"
+                >
+                  <template #item.material_name="{ item }">
+                    {{ item.material_name || item.material_code }}
+                  </template>
+                  <template #item.price_per_kg="{ item }">
+                    {{ item.price_per_kg }} руб/кг
+                  </template>
+                  <template #item.is_active="{ item }">
+                    <v-chip :color="item.is_active ? 'success' : 'grey'" size="small" variant="tonal">
+                      {{ item.is_active ? 'Активен' : 'Неактивен' }}
+                    </v-chip>
+                  </template>
+                  <template #item.actions="{ item }">
+                    <div class="d-flex flex-wrap ga-1">
+                      <v-btn size="small" variant="text" density="comfortable" @click="openPriceDialog(item)">
+                        Изменить
+                      </v-btn>
+                      <v-btn
+                        size="small"
+                        variant="text"
+                        :color="item.is_active ? 'warning' : 'success'"
+                        density="comfortable"
+                        @click="togglePriceActive(item)"
+                      >
+                        {{ item.is_active ? 'Деактивировать' : 'Активировать' }}
+                      </v-btn>
+                    </div>
+                  </template>
+                </v-data-table>
+              </div>
+              <v-alert v-if="priceFormError" type="error" density="compact" class="ma-3" closable @click:close="priceFormError = ''">
+                {{ priceFormError }}
+              </v-alert>
             </v-card>
 
-            <v-dialog v-model="priceDialog" max-width="500" persistent>
+<v-dialog
+              v-model="priceDialog"
+              :fullscreen="fullscreenModal"
+              max-width="500"
+              persistent
+              scrollable
+              class="admin-dialog"
+            >
               <v-card>
-                <v-card-title>{{ editingPrice ? 'Редактировать цену' : 'Новая цена' }}</v-card-title>
+                <v-card-title>{{ editingPrice ? 'Редактировать цену' : 'Добавить цену' }}</v-card-title>
                 <v-card-text>
                   <v-select
-                    v-model="priceForm.material_type"
-                    :items="materialTypeItems"
-                    label="Тип макулатуры"
+                    v-model="priceForm.material"
+                    :items="availableMaterialsForPrice"
+                    item-title="name"
+                    item-value="id"
+                    label="Материал *"
                     variant="outlined"
                     class="mb-3"
+                    :disabled="!!editingPrice"
+                    :no-data-text="editingPrice ? '' : 'Нет материалов без цены. Сначала добавьте тип материала.'"
                   />
                   <v-text-field
-                    v-model="priceForm.price_per_kg"
-                    label="Цена за кг (руб)"
+                    v-model.number="priceForm.price_per_kg"
+                    label="Цена за кг (руб) *"
                     type="number"
                     min="0"
                     step="0.01"
                     variant="outlined"
                     class="mb-3"
+                    :error-messages="priceFormErrors.price_per_kg"
                   />
-                  <v-text-field
-                    v-model="priceForm.valid_from"
-                    label="Действует с (дата)"
-                    type="date"
-                    variant="outlined"
-                    class="mb-3"
-                  />
-                  <v-text-field
-                    v-model="priceForm.valid_to"
-                    label="Действует по (дата, необяз.)"
-                    type="date"
-                    variant="outlined"
-                    class="mb-3"
-                  />
-                  <v-checkbox v-model="priceForm.is_active" label="Активна" />
+                  <v-switch v-model="priceForm.is_active" label="Активен (отображается в заявках)" color="primary" hide-details class="mb-2" />
                 </v-card-text>
-                <v-card-actions>
+                <v-card-actions class="px-4 pb-4">
                   <v-spacer />
                   <v-btn variant="text" @click="priceDialog = false">Отмена</v-btn>
                   <v-btn color="primary" :loading="savingPrice" @click="savePrice">Сохранить</v-btn>
@@ -108,13 +134,37 @@
               </v-card>
             </v-dialog>
 
-            <v-dialog v-model="deletePriceDialog" max-width="400" persistent>
+            <v-dialog
+              v-model="materialDialog"
+              :fullscreen="fullscreenModal"
+              max-width="440"
+              persistent
+              class="admin-dialog"
+            >
               <v-card>
-                <v-card-title>Удалить запись о цене?</v-card-title>
-                <v-card-actions>
+                <v-card-title>{{ editingMaterial ? 'Редактировать тип материала' : 'Новый тип материала' }}</v-card-title>
+                <v-card-text>
+                  <v-text-field
+                    v-model="materialForm.name"
+                    label="Название *"
+                    variant="outlined"
+                    class="mb-3"
+                    :error-messages="materialFormErrors.name"
+                  />
+                  <v-text-field
+                    v-model="materialForm.code"
+                    label="Код (латиница, например cardboard) *"
+                    variant="outlined"
+                    class="mb-3"
+                    :error-messages="materialFormErrors.code"
+                    :disabled="!!editingMaterial"
+                  />
+                  <v-switch v-model="materialForm.is_active" label="Активен" color="primary" hide-details />
+                </v-card-text>
+                <v-card-actions class="px-4 pb-4">
                   <v-spacer />
-                  <v-btn variant="text" @click="deletePriceDialog = false">Отмена</v-btn>
-                  <v-btn color="error" :loading="deletingPrice" @click="doDeletePrice">Удалить</v-btn>
+                  <v-btn variant="text" @click="materialDialog = false">Отмена</v-btn>
+                  <v-btn color="primary" :loading="savingMaterial" @click="saveMaterial">Сохранить</v-btn>
                 </v-card-actions>
               </v-card>
             </v-dialog>
@@ -131,11 +181,13 @@
                 </v-btn>
               </v-card-title>
               <v-divider />
+              <div class="overflow-x-auto">
               <v-data-table
                 :headers="newsHeaders"
                 :items="newsArticles"
                 :loading="loadingNews"
                 item-value="id"
+                :mobile-breakpoint="600"
               >
                 <template #item.is_published="{ item }">
                   <v-switch
@@ -154,9 +206,16 @@
                   <v-btn size="small" variant="text" color="error" @click="confirmDeleteNews(item)">Удалить</v-btn>
                 </template>
               </v-data-table>
+              </div>
             </v-card>
 
-            <v-dialog v-model="newsDialog" max-width="640" persistent scrollable>
+            <v-dialog
+              v-model="newsDialog"
+              :fullscreen="fullscreenModal"
+              max-width="640"
+              persistent
+              scrollable
+            >
               <v-card>
                 <v-card-title>{{ editingNews ? 'Редактировать новость' : 'Новая новость' }}</v-card-title>
                 <v-card-text style="max-height: 70vh" class="overflow-y-auto">
@@ -200,7 +259,12 @@
               </v-card>
             </v-dialog>
 
-            <v-dialog v-model="deleteNewsDialog" max-width="400" persistent>
+            <v-dialog
+              v-model="deleteNewsDialog"
+              :fullscreen="fullscreenModal"
+              max-width="400"
+              persistent
+            >
               <v-card>
                 <v-card-title>Удалить новость?</v-card-title>
                 <v-card-text>
@@ -226,11 +290,13 @@
                 </v-btn>
               </v-card-title>
               <v-divider />
+              <div class="overflow-x-auto">
               <v-data-table
                 :headers="companyHeaders"
                 :items="companies"
                 :loading="loadingCompanies"
                 item-value="id"
+                :mobile-breakpoint="600"
               >
                 <template #item.contact_phone="{ item }">
                   {{ item.contact_phone }} / {{ item.contact_email }}
@@ -241,9 +307,15 @@
                   <v-btn size="small" variant="text" color="error" @click="confirmDeleteCompany(item)">Удалить</v-btn>
                 </template>
               </v-data-table>
+              </div>
             </v-card>
 
-            <v-dialog v-model="companyCardDialog" max-width="640" persistent>
+            <v-dialog
+              v-model="companyCardDialog"
+              :fullscreen="fullscreenModal"
+              max-width="640"
+              persistent
+            >
               <v-card v-if="companyCard">
                 <v-card-title class="d-flex align-center">
                   Карточка компании
@@ -274,7 +346,13 @@
               </v-card>
             </v-dialog>
 
-            <v-dialog v-model="companyDialog" max-width="600" persistent scrollable>
+            <v-dialog
+              v-model="companyDialog"
+              :fullscreen="fullscreenModal"
+              max-width="600"
+              persistent
+              scrollable
+            >
               <v-card>
                 <v-card-title>{{ editingCompany ? 'Редактировать компанию' : 'Новая компания' }}</v-card-title>
                 <v-card-text style="max-height: 70vh" class="overflow-y-auto">
@@ -392,7 +470,12 @@
               </v-card>
             </v-dialog>
 
-            <v-dialog v-model="deleteCompanyDialog" max-width="400" persistent>
+            <v-dialog
+              v-model="deleteCompanyDialog"
+              :fullscreen="fullscreenModal"
+              max-width="400"
+              persistent
+            >
               <v-card>
                 <v-card-title>Удалить компанию?</v-card-title>
                 <v-card-text>
@@ -445,7 +528,12 @@
               </v-data-table>
             </v-card>
 
-            <v-dialog v-model="institutionCardDialog" max-width="640" persistent>
+            <v-dialog
+              v-model="institutionCardDialog"
+              :fullscreen="fullscreenModal"
+              max-width="640"
+              persistent
+            >
               <v-card v-if="institutionCard">
                 <v-card-title class="d-flex align-center">
                   Карточка организации
@@ -478,7 +566,13 @@
               </v-card>
             </v-dialog>
 
-            <v-dialog v-model="institutionDialog" max-width="600" persistent scrollable>
+            <v-dialog
+              v-model="institutionDialog"
+              :fullscreen="fullscreenModal"
+              max-width="600"
+              persistent
+              scrollable
+            >
               <v-card>
                 <v-card-title>{{ editingInstitution ? 'Редактировать организацию' : 'Новая организация' }}</v-card-title>
                 <v-card-text style="max-height: 70vh" class="overflow-y-auto">
@@ -611,7 +705,12 @@
               </v-card>
             </v-dialog>
 
-            <v-dialog v-model="deleteInstitutionDialog" max-width="400" persistent>
+            <v-dialog
+              v-model="deleteInstitutionDialog"
+              :fullscreen="fullscreenModal"
+              max-width="400"
+              persistent
+            >
               <v-card>
                 <v-card-title>Удалить организацию?</v-card-title>
                 <v-card-text>
@@ -714,7 +813,12 @@
               </v-data-table>
             </v-card>
 
-            <v-dialog v-model="requestCardDialog" max-width="640" persistent>
+            <v-dialog
+              v-model="requestCardDialog"
+              :fullscreen="fullscreenModal"
+              max-width="640"
+              persistent
+            >
               <v-card v-if="requestCard">
                 <v-card-title class="d-flex align-center">
                   Заявка {{ requestCard.request_number || requestCard.id }}
@@ -742,190 +846,9 @@
             </v-dialog>
           </v-window-item>
 
-          <!-- Statistics -->
+          <!-- Statistics (advanced analytics dashboard) -->
           <v-window-item value="statistics">
-            <div class="statistics-tab">
-              <v-card class="rounded-lg elevation-1 mb-4">
-                <v-card-title class="text-subtitle-1 font-weight-medium">Период и основа расчёта</v-card-title>
-                <v-card-text class="d-flex flex-wrap align-center gap-3">
-                  <v-select
-                    v-model="statsBasis"
-                    :items="statsBasisOptions"
-                    density="compact"
-                    hide-details
-                    label="Учитывать"
-                    variant="outlined"
-                    style="max-width: 260px"
-                  />
-                  <v-select
-                    v-model="statsPeriodPreset"
-                    :items="statsPeriodOptions"
-                    density="compact"
-                    hide-details
-                    label="Период"
-                    variant="outlined"
-                    style="max-width: 180px"
-                  />
-                  <v-text-field
-                    v-model="statsDateFrom"
-                    type="date"
-                    label="С"
-                    density="compact"
-                    hide-details
-                    variant="outlined"
-                    style="max-width: 160px"
-                  />
-                  <v-text-field
-                    v-model="statsDateTo"
-                    type="date"
-                    label="По"
-                    density="compact"
-                    hide-details
-                    variant="outlined"
-                    style="max-width: 160px"
-                  />
-                  <v-btn color="primary" :loading="loadingStats" @click="loadAdminStats">
-                    Применить
-                  </v-btn>
-                </v-card-text>
-                <v-card-text v-if="statsBasis === 'completed'" class="text-caption text-medium-emphasis pt-0">
-                  «По дате завершения» — только завершённые заявки, по дате фактического завершения. Если данных нет, проверьте, что у заявок выставлен статус «Завершён» и дата завершения.
-                </v-card-text>
-              </v-card>
-              <v-alert v-if="!loadingStats && adminStats && statsEmpty" type="info" variant="tonal" class="mb-4">
-                Нет данных за выбранный период. Попробуйте расширить период (например, «1 год») или выбрать «По дате создания заявки».
-              </v-alert>
-
-              <!-- 1) Submitted materials -->
-              <v-card class="rounded-lg elevation-1 mb-4">
-                <v-card-title class="d-flex align-center flex-wrap gap-2">
-                  <span>Объём сданных материалов (кг)</span>
-                  <v-select
-                    v-model="statsMaterialFilter"
-                    :items="statsMaterialFilterItems"
-                    density="compact"
-                    hide-details
-                    variant="outlined"
-                    style="max-width: 200px"
-                  />
-                  <v-spacer />
-                  <v-btn-toggle v-model="viewModeMaterials" mandatory density="compact">
-                    <v-btn value="table" size="small">Таблица</v-btn>
-                    <v-btn value="graph" size="small">График</v-btn>
-                  </v-btn-toggle>
-                </v-card-title>
-                <v-divider />
-                <v-card-text>
-                  <template v-if="viewModeMaterials === 'table'">
-                    <v-data-table
-                      :headers="statsMaterialsHeaders"
-                      :items="filteredMaterials"
-                      :loading="loadingStats"
-                      item-value="material_type"
-                      class="elevation-0"
-                    >
-                      <template #item.total_kg="{ item }">{{ formatKg(item.total_kg) }}</template>
-                    </v-data-table>
-                  </template>
-                  <template v-else>
-                    <div class="chart-container" style="height: 280px;">
-                      <canvas ref="chartMaterialsRef"></canvas>
-                    </div>
-                  </template>
-                </v-card-text>
-              </v-card>
-
-              <!-- 2) Top organizations -->
-              <v-card class="rounded-lg elevation-1 mb-4">
-                <v-card-title class="d-flex align-center">
-                  <span>Топ организаций по объёму сдачи</span>
-                  <v-spacer />
-                  <v-btn-toggle v-model="viewModeTopOrg" mandatory density="compact">
-                    <v-btn value="table" size="small">Таблица</v-btn>
-                    <v-btn value="graph" size="small">График</v-btn>
-                  </v-btn-toggle>
-                </v-card-title>
-                <v-divider />
-                <v-card-text>
-                  <template v-if="viewModeTopOrg === 'table'">
-                    <v-data-table
-                      :headers="statsTopOrgHeaders"
-                      :items="adminStats?.top_organizations ?? []"
-                      :loading="loadingStats"
-                      item-value="institution_id"
-                      class="elevation-0"
-                    >
-                      <template #item.total_kg="{ item }">{{ formatKg(item.total_kg) }}</template>
-                    </v-data-table>
-                  </template>
-                  <template v-else>
-                    <div class="chart-container" style="height: 320px;">
-                      <canvas ref="chartTopOrgRef"></canvas>
-                    </div>
-                  </template>
-                </v-card-text>
-              </v-card>
-
-              <!-- 3) Requests by status -->
-              <v-card class="rounded-lg elevation-1 mb-4">
-                <v-card-title class="d-flex align-center">
-                  <span>Заявки по статусам</span>
-                  <v-spacer />
-                  <v-btn-toggle v-model="viewModeStatus" mandatory density="compact">
-                    <v-btn value="table" size="small">Таблица</v-btn>
-                    <v-btn value="graph" size="small">График</v-btn>
-                  </v-btn-toggle>
-                </v-card-title>
-                <v-divider />
-                <v-card-text>
-                  <template v-if="viewModeStatus === 'table'">
-                    <v-data-table
-                      :headers="statsStatusHeaders"
-                      :items="adminStats?.requests_by_status ?? []"
-                      :loading="loadingStats"
-                      item-value="status"
-                      class="elevation-0"
-                    />
-                  </template>
-                  <template v-else>
-                    <div class="chart-container" style="height: 260px;">
-                      <canvas ref="chartStatusRef"></canvas>
-                    </div>
-                  </template>
-                </v-card-text>
-              </v-card>
-
-              <!-- 4) Weight over time -->
-              <v-card class="rounded-lg elevation-1 mb-4">
-                <v-card-title class="d-flex align-center">
-                  <span>Динамика объёма по периодам</span>
-                  <v-spacer />
-                  <v-btn-toggle v-model="viewModeWeight" mandatory density="compact">
-                    <v-btn value="table" size="small">Таблица</v-btn>
-                    <v-btn value="graph" size="small">График</v-btn>
-                  </v-btn-toggle>
-                </v-card-title>
-                <v-divider />
-                <v-card-text>
-                  <template v-if="viewModeWeight === 'table'">
-                    <v-data-table
-                      :headers="statsWeightOverTimeHeaders"
-                      :items="adminStats?.weight_over_time ?? []"
-                      :loading="loadingStats"
-                      item-value="date_start"
-                      class="elevation-0"
-                    >
-                      <template #item.total_kg="{ item }">{{ formatKg(item.total_kg) }}</template>
-                    </v-data-table>
-                  </template>
-                  <template v-else>
-                    <div class="chart-container" style="height: 280px;">
-                      <canvas ref="chartWeightRef"></canvas>
-                    </div>
-                  </template>
-                </v-card-text>
-              </v-card>
-            </div>
+            <AdminStatsDashboard />
           </v-window-item>
 
           <!-- Bonuses -->
@@ -1012,7 +935,12 @@
               </v-data-table>
             </v-card>
 
-            <v-dialog v-model="bonusAwardDialog" max-width="480" persistent>
+            <v-dialog
+              v-model="bonusAwardDialog"
+              :fullscreen="fullscreenModal"
+              max-width="480"
+              persistent
+            >
               <v-card v-if="editingBonus">
                 <v-card-title>Начисление бонуса</v-card-title>
                 <v-card-text>
@@ -1071,7 +999,12 @@
                 </template>
               </v-data-table>
             </v-card>
-            <v-dialog v-model="productDialog" max-width="500" persistent>
+            <v-dialog
+              v-model="productDialog"
+              :fullscreen="fullscreenModal"
+              max-width="500"
+              persistent
+            >
               <v-card>
                 <v-card-title>{{ editingProduct ? 'Редактировать товар' : 'Новый товар' }}</v-card-title>
                 <v-card-text>
@@ -1099,7 +1032,12 @@
                 </v-card-actions>
               </v-card>
             </v-dialog>
-            <v-dialog v-model="deleteProductDialog" max-width="400" persistent>
+            <v-dialog
+              v-model="deleteProductDialog"
+              :fullscreen="fullscreenModal"
+              max-width="400"
+              persistent
+            >
               <v-card>
                 <v-card-title>Удалить товар?</v-card-title>
                 <v-card-actions>
@@ -1144,7 +1082,12 @@
                 </template>
               </v-data-table>
             </v-card>
-            <v-dialog v-model="pointsOrderDetailDialog" max-width="600" persistent>
+            <v-dialog
+              v-model="pointsOrderDetailDialog"
+              :fullscreen="fullscreenModal"
+              max-width="600"
+              persistent
+            >
               <v-card v-if="selectedPointsOrder">
                 <v-card-title class="d-flex align-center">
                   Заказ #{{ selectedPointsOrder.id }}
@@ -1207,11 +1150,14 @@ import Chart from 'chart.js/auto'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
-import type { CompanyProfile, InstitutionProfile, CollectionRequest, NewsArticle, PriceList } from '@/types'
+import { useBreakpoints } from '@/composables/useBreakpoints'
+import type { CompanyProfile, InstitutionProfile, Material, CollectionRequest, NewsArticle, PriceList } from '@/types'
+import AdminStatsDashboard from '@/components/admin/AdminStatsDashboard.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const userStore = useUserStore()
+const { fullscreenModal } = useBreakpoints()
 
 const activeTab = ref('prices')
 const prices = ref<PriceList[]>([])
@@ -1226,15 +1172,15 @@ const priceDialog = ref(false)
 const editingPrice = ref<PriceList | null>(null)
 const savingPrice = ref(false)
 const priceForm = reactive({
-  material_type: 'paper',
-  price_per_kg: '',
-  valid_from: '',
-  valid_to: '' as string,
+  material: null as number | null,
+  price_per_kg: '' as string | number,
   is_active: true,
 })
-const deletePriceDialog = ref(false)
-const priceToDelete = ref<PriceList | null>(null)
-const deletingPrice = ref(false)
+const materialDialog = ref(false)
+const editingMaterial = ref<Material | null>(null)
+const savingMaterial = ref(false)
+const materialForm = reactive({ name: '', code: '', is_active: true })
+const materialFormErrors = ref<Record<string, string>>({})
 const requestStatusFilter = ref('all')
 
 const newsArticles = ref<NewsArticle[]>([])
@@ -1319,22 +1265,38 @@ const institutionToDelete = ref<InstitutionProfile | null>(null)
 const deletingInstitution = ref(false)
 const institutionFormErrors = ref<Record<string, string[]>>({})
 
-const materialTypeItems = [
-  { title: 'Бумага', value: 'paper' },
-  { title: 'Картон', value: 'cardboard' },
-  { title: 'Газеты', value: 'newspapers' },
-  { title: 'Смешанная', value: 'mixed' },
-  { title: 'Архивная', value: 'archive' },
-]
+const materials = ref<Material[]>([])
+const loadingMaterials = ref(false)
 
 const priceHeaders = [
-  { title: 'Тип макулатуры', key: 'material_type_display' },
-  { title: 'Цена', key: 'price_per_kg' },
-  { title: 'Действует с', key: 'valid_from' },
-  { title: 'Действует по', key: 'valid_to' },
-  { title: 'Активна', key: 'is_active' },
-  { title: 'Действия', key: 'actions', sortable: false, width: '180' },
+  { title: 'Название', key: 'material_name', sortable: true },
+  { title: 'Цена за кг', key: 'price_per_kg' },
+  { title: 'Статус', key: 'is_active', sortable: true },
+  { title: 'Действия', key: 'actions', sortable: false, width: '200' },
 ]
+
+const materialSearch = ref('')
+const priceFormError = ref('')
+const priceFormErrors = ref<Record<string, string>>({})
+
+const filteredPrices = computed(() => {
+  let list = prices.value
+  const q = (materialSearch.value || '').trim().toLowerCase()
+  if (q) {
+    list = list.filter(
+      (p) =>
+        (p.material_name || '').toLowerCase().includes(q) ||
+        (p.material_code || '').toLowerCase().includes(q)
+    )
+  }
+  return list
+})
+
+const availableMaterialsForPrice = computed(() => {
+  const used = new Set(prices.value.map((p) => p.material))
+  if (editingPrice.value) return materials.value
+  return materials.value.filter((m) => m.is_active && !used.has(m.id))
+})
 
 const companyHeaders = [
   { title: 'Название', key: 'company_name' },
@@ -1647,6 +1609,16 @@ async function loadPrices() {
     prices.value = data
   } finally {
     loadingPrices.value = false
+  }
+}
+
+async function loadMaterials() {
+  loadingMaterials.value = true
+  try {
+    const { data } = await api.get<Material[]>('/materials/')
+    materials.value = data
+  } finally {
+    loadingMaterials.value = false
   }
 }
 
@@ -2111,59 +2083,127 @@ async function toggleNewsPublish(item: NewsArticle) {
 
 function openPriceDialog(item?: PriceList) {
   editingPrice.value = item ?? null
+  priceFormError.value = ''
+  priceFormErrors.value = {}
   if (item) {
-    priceForm.material_type = item.material_type
+    priceForm.material = item.material
     priceForm.price_per_kg = String(item.price_per_kg)
-    priceForm.valid_from = item.valid_from
-    priceForm.valid_to = item.valid_to || ''
     priceForm.is_active = item.is_active
   } else {
-    priceForm.material_type = 'paper'
+    priceForm.material = availableMaterialsForPrice.value[0]?.id ?? null
     priceForm.price_per_kg = ''
-    priceForm.valid_from = new Date().toISOString().slice(0, 10)
-    priceForm.valid_to = ''
     priceForm.is_active = true
   }
   priceDialog.value = true
 }
 
+function openMaterialDialog(item?: Material) {
+  editingMaterial.value = item ?? null
+  materialFormErrors.value = {}
+  if (item) {
+    materialForm.name = item.name
+    materialForm.code = item.code
+    materialForm.is_active = item.is_active
+  } else {
+    materialForm.name = ''
+    materialForm.code = ''
+    materialForm.is_active = true
+  }
+  materialDialog.value = true
+}
+
+async function saveMaterial() {
+  materialFormErrors.value = {}
+  const name = (materialForm.name || '').trim()
+  const code = (materialForm.code || '').trim().toLowerCase()
+  if (!name) {
+    materialFormErrors.value.name = 'Введите название'
+    return
+  }
+  if (!code) {
+    materialFormErrors.value.code = 'Введите код (латиница)'
+    return
+  }
+  savingMaterial.value = true
+  try {
+    if (editingMaterial.value) {
+      await api.patch(`/materials/${editingMaterial.value.id}/`, {
+        name: name,
+        is_active: materialForm.is_active,
+      })
+    } else {
+      await api.post('/materials/', { name: name, code: code, is_active: materialForm.is_active })
+    }
+    materialDialog.value = false
+    await loadMaterials()
+  } catch (err: unknown) {
+    const ax = err as { response?: { data?: Record<string, string | string[]> } }
+    const d = ax.response?.data
+    if (d) {
+      if (d.name) materialFormErrors.value.name = Array.isArray(d.name) ? d.name.join(' ') : d.name
+      if (d.code) materialFormErrors.value.code = Array.isArray(d.code) ? d.code.join(' ') : d.code
+      else if (d.detail) materialFormErrors.value.code = typeof d.detail === 'string' ? d.detail : String(d.detail)
+    }
+  } finally {
+    savingMaterial.value = false
+  }
+}
+
 async function savePrice() {
+  priceFormError.value = ''
+  priceFormErrors.value = {}
+  if (!editingPrice.value && (priceForm.material == null || priceForm.material === '')) {
+    priceFormError.value = 'Выберите материал'
+    return
+  }
+  const priceNum = Number(priceForm.price_per_kg)
+  if (!editingPrice.value && (priceForm.price_per_kg === '' || isNaN(priceNum) || priceNum < 0)) {
+    priceFormErrors.value.price_per_kg = 'Введите число не меньше 0'
+    return
+  }
+  if (editingPrice.value && (isNaN(priceNum) || priceNum < 0)) {
+    priceFormErrors.value.price_per_kg = 'Введите число не меньше 0'
+    return
+  }
   savingPrice.value = true
   try {
-    const payload = {
-      material_type: priceForm.material_type,
-      price_per_kg: priceForm.price_per_kg,
-      valid_from: priceForm.valid_from,
-      valid_to: priceForm.valid_to || null,
-      is_active: priceForm.is_active,
-    }
     if (editingPrice.value) {
-      await api.patch(`/prices/${editingPrice.value.id}/`, payload)
+      await api.patch(`/prices/${editingPrice.value.id}/`, {
+        price_per_kg: String(priceForm.price_per_kg),
+        is_active: priceForm.is_active,
+      })
     } else {
-      await api.post('/prices/', payload)
+      await api.post('/prices/', {
+        material: priceForm.material,
+        price_per_kg: String(priceForm.price_per_kg),
+        is_active: priceForm.is_active,
+      })
     }
     priceDialog.value = false
     await loadPrices()
+  } catch (err: unknown) {
+    const ax = err as { response?: { data?: Record<string, string | string[]> } }
+    const d = ax.response?.data
+    if (d) {
+      if (typeof d.material === 'string') priceFormError.value = d.material
+      else if (Array.isArray(d.material)) priceFormError.value = d.material.join(' ')
+      else if (d.price_per_kg) priceFormErrors.value.price_per_kg = Array.isArray(d.price_per_kg) ? d.price_per_kg.join(' ') : d.price_per_kg
+      else if (d.detail) priceFormError.value = typeof d.detail === 'string' ? d.detail : String(d.detail)
+      else priceFormError.value = Object.values(d).flat().join(' ')
+    } else {
+      priceFormError.value = 'Не удалось сохранить'
+    }
   } finally {
     savingPrice.value = false
   }
 }
 
-function confirmDeletePrice(item: PriceList) {
-  priceToDelete.value = item
-  deletePriceDialog.value = true
-}
-
-async function doDeletePrice() {
-  if (!priceToDelete.value) return
-  deletingPrice.value = true
+async function togglePriceActive(item: PriceList) {
   try {
-    await api.delete(`/prices/${priceToDelete.value.id}/`)
-    deletePriceDialog.value = false
-    priceToDelete.value = null
+    await api.patch(`/prices/${item.id}/`, { is_active: !item.is_active })
     await loadPrices()
-  } finally {
-    deletingPrice.value = false
+  } catch {
+    // snackbar or ignore
   }
 }
 
@@ -2403,7 +2443,10 @@ function logout() {
 }
 
 watch(activeTab, (tab) => {
-  if (tab === 'prices') loadPrices()
+  if (tab === 'prices') {
+    loadPrices()
+    loadMaterials()
+  }
   if (tab === 'news') loadNews()
   if (tab === 'companies') loadCompanies()
   if (tab === 'institutions') loadInstitutions()
@@ -2411,7 +2454,7 @@ watch(activeTab, (tab) => {
   if (tab === 'requests') loadRequests()
   if (tab === 'statistics') {
     setStatsDatesFromPreset()
-    loadAdminStats()
+    // Advanced dashboard loads its own data via AdminStatsDashboard
   }
   if (tab === 'bonuses') {
     fetchBonusConfig()
@@ -2429,5 +2472,18 @@ watch(() => productForm.imageFile, (files) => {
 
 onMounted(() => {
   loadPrices()
+  loadMaterials()
 })
 </script>
+
+<style scoped>
+.admin-materials-search { min-width: 0; }
+@media (max-width: 600px) {
+  .admin-materials-table :deep(.v-data-table__td) { padding-left: 8px; padding-right: 8px; }
+  .admin-dialog :deep(.v-card) { margin: 8px; max-height: calc(100vh - 16px); }
+}
+@media (max-width: 960px) {
+  .vuvoz-tabs :deep(.v-tab) { min-width: 120px; }
+  .v-main .v-container { padding-left: 12px; padding-right: 12px; }
+}
+</style>

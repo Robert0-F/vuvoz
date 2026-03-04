@@ -127,13 +127,6 @@ class CollectionRequest(models.Model):
         on_delete=models.CASCADE,
         related_name='received_requests',
     )
-    class MaterialType(models.TextChoices):
-        PAPER = 'paper', 'Бумага'
-        CARDBOARD = 'cardboard', 'Картон'
-        NEWSPAPERS = 'newspapers', 'Газеты'
-        MIXED = 'mixed', 'Смешанная'
-        ARCHIVE = 'archive', 'Архивная'
-
     request_number = models.CharField(max_length=32, unique=True, blank=True, null=True, db_index=True)
     status = models.CharField(
         max_length=20,
@@ -146,9 +139,9 @@ class CollectionRequest(models.Model):
         default=Urgency.MEDIUM,
     )
     material_type = models.CharField(
-        max_length=20,
-        choices=MaterialType.choices,
-        default=MaterialType.PAPER,
+        max_length=32,
+        default='paper',
+        help_text='Material code (e.g. paper, cardboard). Set from first line when request has material_lines.',
     )
     paper_weight_kg = models.DecimalField(
         max_digits=10,
@@ -217,16 +210,16 @@ class CollectionRequest(models.Model):
         if self.estimated_amount == 0 and self.paper_weight_kg:
             self.estimated_amount = self.paper_weight_kg
         if self.pk:
-            lines = list(self.material_lines.values('material_type', 'amount_kg'))
+            lines = list(self.material_lines.select_related('material').values('material__code', 'amount_kg'))
             if lines:
                 total_kg = sum(l['amount_kg'] for l in lines)
                 self.estimated_amount = total_kg
                 self.paper_weight_kg = total_kg
                 self.estimated_value = sum(
-                    l['amount_kg'] * PriceList.get_current_price(l['material_type']) for l in lines
+                    l['amount_kg'] * PriceList.get_current_price(l['material__code']) for l in lines
                 )
                 if not self.material_type or self.material_type == 'paper':
-                    self.material_type = lines[0]['material_type'] if len(lines) == 1 else 'mixed'
+                    self.material_type = lines[0]['material__code'] if lines else 'paper'
         elif self.material_type and self.estimated_amount is not None:
             price = PriceList.get_current_price(self.material_type)
             self.estimated_value = self.estimated_amount * price
@@ -262,22 +255,42 @@ class InAppNotification(models.Model):
         return f"{self.title} ({self.user_id})"
 
 
+class Material(models.Model):
+    """Material type (extensible). Admin can add new materials; prices and request lines reference this."""
+
+    name = models.CharField(max_length=120)
+    code = models.CharField(max_length=32, unique=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Material'
+        verbose_name_plural = 'Materials'
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_display_name(cls, code):
+        if not code:
+            return ''
+        m = cls.objects.filter(code=code).first()
+        return m.name if m else code
+
+
 class RequestMaterialLine(models.Model):
     """One material type + weight in a collection request. One request can have multiple lines."""
-
-    class MaterialType(models.TextChoices):
-        PAPER = 'paper', 'Бумага'
-        CARDBOARD = 'cardboard', 'Картон'
-        NEWSPAPERS = 'newspapers', 'Газеты'
-        MIXED = 'mixed', 'Смешанная'
-        ARCHIVE = 'archive', 'Архивная'
 
     collection_request = models.ForeignKey(
         CollectionRequest,
         on_delete=models.CASCADE,
         related_name='material_lines',
     )
-    material_type = models.CharField(max_length=20, choices=MaterialType.choices)
+    material = models.ForeignKey(
+        Material,
+        on_delete=models.PROTECT,
+        related_name='request_lines',
+    )
     amount_kg = models.DecimalField(max_digits=10, decimal_places=2)
 
     class Meta:
@@ -311,43 +324,37 @@ class NewsArticle(models.Model):
 
 
 class PriceList(models.Model):
-    """Material prices (admin-managed). Used for estimated_value and actual_value."""
+    """Material prices (admin-managed). One row per material. Used for estimated_value and actual_value."""
 
-    class MaterialType(models.TextChoices):
-        PAPER = 'paper', 'Бумага'
-        CARDBOARD = 'cardboard', 'Картон'
-        NEWSPAPERS = 'newspapers', 'Газеты'
-        MIXED = 'mixed', 'Смешанная'
-        ARCHIVE = 'archive', 'Архивная'
-
-    material_type = models.CharField(max_length=20, choices=MaterialType.choices)
+    material = models.OneToOneField(
+        Material,
+        on_delete=models.CASCADE,
+        related_name='price',
+    )
     price_per_kg = models.DecimalField(max_digits=10, decimal_places=2)
-    valid_from = models.DateField()
+    valid_from = models.DateField(null=True, blank=True)  # optional; set on save if blank
     valid_to = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-valid_from']
+        ordering = ['material__name']
         verbose_name = 'Price List'
         verbose_name_plural = 'Price Lists'
 
     def __str__(self):
-        return f"{self.get_material_type_display()} — {self.price_per_kg} руб/кг"
+        return f"{self.material.name} — {self.price_per_kg} руб/кг"
+
+    def save(self, *args, **kwargs):
+        if self.valid_from is None:
+            from django.utils import timezone
+            self.valid_from = timezone.now().date()
+        super().save(*args, **kwargs)
 
     @classmethod
-    def get_current_price(cls, material_type):
-        from django.utils import timezone
+    def get_current_price(cls, material_code):
         from decimal import Decimal
-        today = timezone.now().date()
-        qs = cls.objects.filter(
-            material_type=material_type,
-            is_active=True,
-            valid_from__lte=today,
-        ).filter(
-            Q(valid_to__isnull=True) | Q(valid_to__gte=today)
-        ).order_by('-valid_from')
-        row = qs.first()
+        row = cls.objects.filter(material__code=material_code, is_active=True).select_related('material').first()
         return row.price_per_kg if row else Decimal('0')
 
 

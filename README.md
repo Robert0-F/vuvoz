@@ -42,6 +42,8 @@ cd frontend && npm install && npm run dev
 ```bash
 python -c "exec(open('setup_dev_data.py').read()); run()"
 ```
+Robert@test.com
+Test123456
 
 - Администратор: `admin@test.com` / `test123`
 - Компания: `company@test.com` / `test123`
@@ -84,6 +86,56 @@ python scripts/attach_test_product_image.py
 python scripts/clear_db.py
 ```
 
+### Скрипты для работы с базой данных
+
+**1. Сохранить базу (резервная копия)**
+
+```bash
+python scripts/backup_db.py
+```
+
+- **SQLite**: копирует `db.sqlite3` в каталог `backups/` с именем `db_YYYYMMDD_HHMMSS.sqlite3`.
+- **PostgreSQL**: создаёт дамп в `backups/vuvoz_YYYYMMDD_HHMMSS.sql` (нужен `pg_dump` в PATH).
+- Можно указать свой каталог: `python scripts/backup_db.py C:\my_backups`.
+
+**2. Удалить все данные из базы**
+
+Полная очистка (включая всех пользователей и админа):
+
+```bash
+python scripts/wipe_db.py
+```
+
+Перед запуском желательно сделать резервную копию: `python scripts/backup_db.py`.
+
+**3. Полный набор тестовых данных** (админ, 8 компаний, 80 организаций, заявки за год)
+
+Создаёт: одного администратора, 8 компаний, 80 организаций (все данные на русском), по 20 завершённых и 1 активной заявке на каждую организацию. Даты завершённых заявок распределены по последнему году — удобно для проверки статистики и графиков.
+
+Типы организаций: школы, офисы, производство, частные клиенты (у частных клиентов в названии указано ФИО, например «Иванов Иван Иванович»).
+
+```bash
+python scripts/create_full_test_data.py
+```
+
+Или через shell (для корректной кодировки русского текста):
+
+```bash
+python manage.py shell -c "exec(open('scripts/create_full_test_data.py', encoding='utf-8').read()); run()"
+```
+
+Рекомендуемый порядок для чистой базы: сначала полная очистка, затем создание тестовых данных:
+
+```bash
+python scripts/backup_db.py
+python scripts/wipe_db.py
+python scripts/create_full_test_data.py
+```
+
+- Администратор: `admin@vuvoz.ru` / `test123`
+- Компании: `company1@test.com` … `company8@test.com` / `test123`
+- Организации: `school01@test.com`, `office01@test.com`, `factory01@test.com`, `private01@test.com` и т.д. / `test123`
+
 ## Тесты
 
 ```bash
@@ -92,9 +144,14 @@ pytest tests/ -v
 
 Ожидается 21 тест (API, лимиты веса, валидация заявок, профиль учреждения).
 
+## Production
+
+Развёртывание в production (Docker, Nginx + Gunicorn, переменные окружения, SSL): см. [DEPLOYMENT.md](DEPLOYMENT.md). Итоги предзапускного аудита — [DEPLOYMENT_AUDIT.md](DEPLOYMENT_AUDIT.md).
+
 ## Документация
 
 - [DEPLOYMENT.md](DEPLOYMENT.md) — развёртывание, Nginx, Gunicorn, Docker
+- [DEPLOYMENT_AUDIT.md](DEPLOYMENT_AUDIT.md) — отчёт предзапускного аудита (production readiness)
 - [API_DOCS.md](API_DOCS.md) — описание всех API-эндпоинтов
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) — статус проекта, известные проблемы, [Future Ideas / Roadmap](PROJECT_STATUS.md#future-ideas--roadmap)
 - [docs/INTERFACE_TEST_CHECKLIST.md](docs/INTERFACE_TEST_CHECKLIST.md) — чек-лист ручной проверки интерфейса
@@ -109,7 +166,7 @@ vuvoz/
 ├── vuvoz/               # Django settings, urls
 ├── frontend/            # Vue SPA (Vite, Vuetify)
 ├── tests/               # Pytest тесты API
-├── scripts/             # load_test_data.py, generate_stats_data.py, create_bonus_products.py, attach_test_product_image.py
+├── scripts/             # backup_db.py, wipe_db.py, create_full_test_data.py, load_test_data.py, clear_db.py, create_bonus_products.py, …
 ├── docs/                # Чек-листы и доп. документация
 ├── manage.py
 ├── requirements.txt
