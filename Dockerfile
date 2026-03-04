@@ -1,9 +1,13 @@
-FROM node:20-alpine AS frontend
+# Debian-based Node (glibc) so Rollup's native binding can be installed
+FROM node:20-slim AS frontend
 WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci --omit=optional
+ENV SASS_SILENCE_DEPRECATION=legacy-js-api
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY frontend/ ./
-RUN npm run build
+COPY frontend/.env.production ./
+# Reinstall node_modules in container so optional platform binary (@rollup/rollup-linux-x64-gnu)
+# is installed for Linux (lockfile from Windows skips it - npm optionalDeps bug #4828)
+RUN rm -rf node_modules && npm install && npm run build
 
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1

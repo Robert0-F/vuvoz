@@ -6,9 +6,10 @@
 2. [Production — один сервер](#production--один-сервер)
 3. [Production — Nginx + Gunicorn](#production--nginx--gunicorn)
 4. [Docker (PostgreSQL + Django + Nginx)](#docker-postgresql--django--nginx)
-5. [База данных — backup и restore](#база-данных--backup-и-restore)
-6. [SSL-сертификаты](#ssl-сертификаты)
-7. [Чек-лист развёртывания](#чек-лист-развёртывания)
+5. [Привязка домена (общая)](#привязка-домена-общая)
+6. [База данных — backup и restore](#база-данных--backup-и-restore)
+7. [SSL-сертификаты](#ssl-сертификаты)
+8. [Чек-лист развёртывания](#чек-лист-развёртывания)
 
 ---
 
@@ -178,10 +179,40 @@ cp .env.example .env
 ### 2. Запуск
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 Приложение доступно на порту 80. Nginx проксирует запросы на Django.
+
+### 3. Production: привязка домена
+
+Для работы по своему домену (например, `vuvoz.example.com`):
+
+1. **DNS**: создайте A-запись, указывающую на публичный IP сервера.
+2. **Переменные в `.env`** (Docker читает их и передаёт в backend):
+   - `ALLOWED_HOSTS=vuvoz.example.com`
+   - `CORS_ALLOWED_ORIGINS=https://vuvoz.example.com`
+   - `CSRF_TRUSTED_ORIGINS=https://vuvoz.example.com`
+3. **Nginx**: в `nginx.conf` замените `server_name localhost;` на `server_name vuvoz.example.com;` (в файле есть комментарий-напоминание).
+4. Перезапустите контейнеры: `docker compose up -d --build`.
+5. После проверки по HTTP настройте SSL (см. [SSL-сертификаты](#ssl-сертификаты)); затем добавьте `https://vuvoz.example.com` в `CORS_ALLOWED_ORIGINS` и `CSRF_TRUSTED_ORIGINS`, если ещё не добавлено.
+
+**Создание суперпользователя (один раз):**
+
+```bash
+docker compose exec backend python manage.py createsuperuser
+```
+
+---
+
+## Привязка домена (общая)
+
+Независимо от способа развёртывания (Docker или Nginx + Gunicorn):
+
+- **DNS**: A-запись вашего домена → IP сервера.
+- **Django**: `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` должны содержать ваш домен (для HTTPS — с префиксом `https://`).
+- **Nginx**: в конфиге указан правильный `server_name` (ваш домен).
+- **SSL**: после проверки по HTTP установите сертификат (Certbot) и при необходимости обновите CORS/CSRF на `https://...`.
 
 ---
 
@@ -229,12 +260,13 @@ sudo certbot renew --dry-run
 ## Чек-лист развёртывания
 
 - [ ] `DJANGO_DEBUG=False`
-- [ ] Уникальный `DJANGO_SECRET_KEY`
-- [ ] `ALLOWED_HOSTS` настроен
+- [ ] Уникальный `DJANGO_SECRET_KEY` (например, `openssl rand -base64 50`)
+- [ ] `ALLOWED_HOSTS` = ваш домен (или несколько через запятую)
 - [ ] PostgreSQL в production (не SQLite)
-- [ ] `python manage.py migrate` выполнен
-- [ ] `python manage.py collectstatic` выполнен
-- [ ] Создан суперпользователь (если нужен доступ в Django admin)
+- [ ] `python manage.py migrate` выполнен (Docker делает при старте)
+- [ ] Фронтенд собран и выполнен `collectstatic` (Docker делает при старте)
+- [ ] Создан суперпользователь, если нужен доступ в Django admin
+- [ ] В Nginx указан `server_name` с вашим доменом
 - [ ] SSL (HTTPS) настроен
-- [ ] `CORS_ALLOWED_ORIGINS` и `CSRF_TRUSTED_ORIGINS` содержат production домен
+- [ ] `CORS_ALLOWED_ORIGINS` и `CSRF_TRUSTED_ORIGINS` содержат production-домен с `https://`
 - [ ] Права на каталоги `staticfiles/` и `media/` для веб-сервера
