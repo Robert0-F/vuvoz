@@ -1,6 +1,6 @@
 <template>
   <div class="inst-request-grid">
-    <!-- New / Completed tabs -->
+    <!-- New / Active / Completed tabs -->
     <div class="inst-request-grid__tabs">
       <button
         type="button"
@@ -9,6 +9,14 @@
         @click="ordersTab = 'new'"
       >
         Новые
+      </button>
+      <button
+        type="button"
+        class="inst-request-grid__tab"
+        :class="{ 'inst-request-grid__tab--active': ordersTab === 'accepted' }"
+        @click="ordersTab = 'accepted'"
+      >
+        В работе
       </button>
       <button
         type="button"
@@ -77,6 +85,22 @@
           <div class="inst-request-card__row">
             <span class="inst-request-card__label">Дата создания</span>
             <span class="inst-request-card__value">{{ formatDate(item.created_at) }}</span>
+          </div>
+          <!-- Executor info for accepted/completed -->
+          <div v-if="item.status === 'accepted' || item.status === 'completed'" class="inst-request-card__executor">
+            <div class="inst-request-card__executor-title">Принято компанией: {{ item.receiving_company_name || '—' }}</div>
+            <div v-if="item.receiving_company_phone" class="inst-request-card__executor-line">
+              <v-icon icon="mdi-phone-outline" size="16" class="inst-request-card__executor-icon" />
+              <a :href="`tel:${item.receiving_company_phone}`" class="inst-request-card__executor-link">{{ item.receiving_company_phone }}</a>
+            </div>
+            <div v-if="item.receiving_company_email" class="inst-request-card__executor-line">
+              <v-icon icon="mdi-email-outline" size="16" class="inst-request-card__executor-icon" />
+              <a :href="`mailto:${item.receiving_company_email}`" class="inst-request-card__executor-link">{{ item.receiving_company_email }}</a>
+            </div>
+            <div class="inst-request-card__executor-line">
+              <v-icon icon="mdi-calendar" size="16" class="inst-request-card__executor-icon" />
+              <span>Планируемая дата вывоза: {{ plannedDateLabel(item) }}</span>
+            </div>
           </div>
         </div>
         <div class="inst-request-card__footer">
@@ -191,6 +215,30 @@
               <span class="inst-quick-view__label">Комментарий</span>
               <span>{{ quickViewItem.comment }}</span>
             </div>
+            <!-- Executor info for accepted/completed -->
+            <div v-if="(quickViewItem.status === 'accepted' || quickViewItem.status === 'completed') && quickViewItem.receiving_company_name" class="inst-quick-view__executor">
+              <h4 class="inst-quick-view__executor-title">Информация об исполнителе</h4>
+              <div class="inst-quick-view__executor-row">
+                <span class="inst-quick-view__label">Компания</span>
+                <span>{{ quickViewItem.receiving_company_name }}</span>
+              </div>
+              <div v-if="quickViewItem.receiving_company_phone" class="inst-quick-view__executor-row">
+                <v-icon icon="mdi-phone-outline" size="18" class="inst-quick-view__executor-icon" />
+                <a :href="`tel:${quickViewItem.receiving_company_phone}`" class="inst-quick-view__executor-link">{{ quickViewItem.receiving_company_phone }}</a>
+              </div>
+              <div v-if="quickViewItem.receiving_company_email" class="inst-quick-view__executor-row">
+                <v-icon icon="mdi-email-outline" size="18" class="inst-quick-view__executor-icon" />
+                <a :href="`mailto:${quickViewItem.receiving_company_email}`" class="inst-quick-view__executor-link">{{ quickViewItem.receiving_company_email }}</a>
+              </div>
+              <div class="inst-quick-view__executor-row">
+                <v-icon icon="mdi-calendar" size="18" class="inst-quick-view__executor-icon" />
+                <span>Планируемая дата: {{ quickViewItem.estimated_collection_date ? formatDate(quickViewItem.estimated_collection_date) : (quickViewItem.desired_date ? formatDate(quickViewItem.desired_date) : '—') }}</span>
+              </div>
+              <div v-if="quickViewItem.actual_collection_date" class="inst-quick-view__executor-row">
+                <v-icon icon="mdi-calendar-check" size="18" class="inst-quick-view__executor-icon" />
+                <span>Фактическая дата вывоза: {{ formatDate(quickViewItem.actual_collection_date) }}</span>
+              </div>
+            </div>
             <div v-if="canCancel(quickViewItem)" class="inst-quick-view__actions">
               <button
                 type="button"
@@ -220,7 +268,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'cancelled'): void }>()
 
-const ordersTab = ref<'new' | 'completed'>('new')
+const ordersTab = ref<'new' | 'accepted' | 'completed'>('new')
 const dateFrom = ref('')
 const dateTo = ref('')
 const sortBy = ref('created_at')
@@ -229,11 +277,12 @@ const pageSize = 12
 const quickViewItem = ref<CollectionRequest | null>(null)
 
 const materialTypeLabels: Record<string, string> = {
-  paper: 'Бумага',
   cardboard: 'Картон',
-  newspapers: 'Газеты',
-  mixed: 'Смешанная',
-  archive: 'Архивная',
+  paper: 'Макулатура',
+  canisters: 'Канистры/флаконы',
+  polyethylene: 'Полиэтилен/стрейч пленка',
+  metal: 'Металл бытовой',
+  glass: 'Стекло (бутылки)',
 }
 
 function formatMaterialLines(item: CollectionRequest): string {
@@ -256,6 +305,11 @@ function statusLabel(s: string) {
   return m[s] || s
 }
 
+function plannedDateLabel(item: CollectionRequest): string {
+  const d = item.actual_collection_date || item.estimated_collection_date || item.desired_date
+  return d ? formatDate(d) : 'не указана'
+}
+
 function canCancel(item: CollectionRequest) {
   return item.status === 'new' || item.status === 'accepted'
 }
@@ -267,7 +321,9 @@ function openQuickView(item: CollectionRequest) {
 const filtered = computed(() => {
   let list = [...props.items]
   if (ordersTab.value === 'new') {
-    list = list.filter((r) => r.status === 'new' || r.status === 'accepted')
+    list = list.filter((r) => r.status === 'new')
+  } else if (ordersTab.value === 'accepted') {
+    list = list.filter((r) => r.status === 'accepted')
   } else {
     list = list.filter((r) => r.status === 'completed' || r.status === 'cancelled')
   }
@@ -375,6 +431,31 @@ function closeCancelConfirm() {
   gap: 1rem;
 }
 
+@media (max-width: 640px) {
+  .inst-request-grid__cards {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .inst-request-grid__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .inst-request-grid__tabs {
+    flex-wrap: wrap;
+  }
+  .inst-request-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .inst-request-card__executor {
+    padding: 0.6rem;
+  }
+  .inst-request-card__executor-line {
+    flex-wrap: wrap;
+  }
+}
+
 .inst-request-card {
   background: var(--vuvoz-surface-elevated);
   border-radius: var(--vuvoz-radius-lg);
@@ -431,6 +512,42 @@ function closeCancelConfirm() {
 .inst-request-card__value {
   color: var(--vuvoz-text);
   text-align: right;
+}
+
+.inst-request-card__executor {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: rgba(13, 148, 136, 0.06);
+  border-radius: var(--vuvoz-radius-sm);
+  border: 1px solid rgba(13, 148, 136, 0.2);
+}
+
+.inst-request-card__executor-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--vuvoz-text-muted);
+  margin: 0 0 0.5rem 0;
+}
+
+.inst-request-card__executor-line {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+  &:last-child { margin-bottom: 0; }
+}
+
+.inst-request-card__executor-icon {
+  flex-shrink: 0;
+  color: var(--vuvoz-primary);
+}
+
+.inst-request-card__executor-link {
+  color: var(--vuvoz-primary);
+  text-decoration: none;
+  word-break: break-all;
+  &:hover { text-decoration: underline; }
 }
 
 .inst-request-card__footer {
@@ -502,6 +619,17 @@ function closeCancelConfirm() {
   padding: 1rem;
 }
 
+@media (max-width: 640px) {
+  .inst-quick-view {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+  .inst-quick-view__panel {
+    max-height: 85vh;
+    border-radius: var(--vuvoz-radius-lg) var(--vuvoz-radius-lg) 0 0;
+  }
+}
+
 .inst-quick-view__panel {
   background: #fff;
   border-radius: var(--vuvoz-radius-lg);
@@ -563,6 +691,44 @@ function closeCancelConfirm() {
   &--accepted { color: #0ea5e9; }
   &--completed { color: #059669; }
   &--cancelled { color: #6b7280; }
+}
+
+.inst-quick-view__executor {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  background: rgba(13, 148, 136, 0.06);
+  border-radius: var(--vuvoz-radius-sm);
+  border: 1px solid rgba(13, 148, 136, 0.2);
+}
+
+.inst-quick-view__executor-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--vuvoz-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.75rem 0;
+}
+
+.inst-quick-view__executor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+  &:last-child { margin-bottom: 0; }
+}
+
+.inst-quick-view__executor-icon {
+  flex-shrink: 0;
+  color: var(--vuvoz-primary);
+}
+
+.inst-quick-view__executor-link {
+  color: var(--vuvoz-primary);
+  text-decoration: none;
+  word-break: break-all;
+  &:hover { text-decoration: underline; }
 }
 
 .inst-request-grid__tabs {

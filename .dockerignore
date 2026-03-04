@@ -1,0 +1,22 @@
+# Don't send host node_modules or frontend build into the image
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Python / env
+__pycache__/
+.venv/
+venv/
+.env
+.env.local
+.env.*.local
+*.pyc
+.pytest_cache/
+*.sqlite3
+staticfiles/
+media/
+
+# Git / IDE
+.git/
+.idea/
+.vscode/

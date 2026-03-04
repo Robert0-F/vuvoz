@@ -2,8 +2,8 @@ import secrets
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from django.db.models import Avg, Case, Count, DurationField, ExpressionWrapper, F, Q, Sum, When
-from django.db.models.functions import TruncDate, TruncMonth, TruncWeek
+from django.db.models import Avg, Case, Count, DurationField, ExpressionWrapper, F, Q, Sum, Value, When
+from django.db.models.functions import Coalesce, TruncDate, TruncMonth, TruncWeek
 from django.utils import timezone as tz
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -19,6 +19,7 @@ from .models import (
     InstitutionProfile,
     InstitutionRegistrationRequest,
     InAppNotification,
+    Material,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
@@ -51,6 +52,7 @@ from .serializers import (
     InstitutionProfileSerializer,
     InstitutionStatsSerializer,
     InstitutionUpdateSerializer,
+    MaterialSerializer,
     NewsArticleSerializer,
     NotificationSerializer,
     PointsOrderCreateSerializer,
@@ -260,9 +262,10 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
             comment=validated.get('comment') or '',
         )
         for line in material_lines:
+            material = Material.objects.get(code=line['material_type'])
             RequestMaterialLine.objects.create(
                 collection_request=req,
-                material_type=line['material_type'],
+                material=material,
                 amount_kg=line['amount_kg'],
             )
         req.save()
@@ -371,11 +374,19 @@ class NewsArticleViewSet(viewsets.ModelViewSet):
         serializer.save(author=self.request.user)
 
 
+class MaterialViewSet(viewsets.ModelViewSet):
+    """CRUD for Material (admin). Used for extensible material types."""
+    serializer_class = MaterialSerializer
+    queryset = Material.objects.all()
+    filterset_fields = ['is_active']
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+
 class PriceListViewSet(viewsets.ModelViewSet):
     """CRUD for PriceList. Admin only. GET /current/ — current prices (any authenticated)."""
     serializer_class = PriceListSerializer
-    queryset = PriceList.objects.all()
-    filterset_fields = ['material_type', 'is_active']
+    queryset = PriceList.objects.all().select_related('material')
+    filterset_fields = ['material', 'is_active']
 
     def get_permissions(self):
         if self.action == 'current':
@@ -384,24 +395,16 @@ class PriceListViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='current')
     def current(self, request):
-        from django.utils import timezone
-        today = timezone.now().date()
-        qs = PriceList.objects.filter(
-            is_active=True,
-            valid_from__lte=today,
-        ).filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today))
-        seen = set()
-        rows = []
-        for p in qs.order_by('material_type', '-valid_from'):
-            if p.material_type in seen:
-                continue
-            seen.add(p.material_type)
-            rows.append({
-                'material_type': p.material_type,
-                'material_type_display': p.get_material_type_display(),
+        """Return active materials only (one per material). Used for request forms."""
+        qs = PriceList.objects.filter(is_active=True).select_related('material').order_by('material__name')
+        return Response([
+            {
+                'material_type': p.material.code,
+                'material_type_display': p.material.name,
                 'price_per_kg': str(p.price_per_kg),
-            })
-        return Response(rows)
+            }
+            for p in qs
+        ])
 
 
 class WeightLimitsView(APIView):
@@ -784,6 +787,122 @@ class CompanyStatsView(APIView):
         return Response(serializer.data)
 
 
+class CompanyDashboardView(APIView):
+    """
+    GET /api/stats/company/dashboard/
+    Returns KPIs (new/active/completed this month/weight/institutions), monthly_weights, material_breakdown.
+    """
+
+    permission_classes = [IsAuthenticated, IsCompanyUser]
+
+    def get(self, request):
+        from django.db.models.functions import Coalesce
+
+        company_profile = request.user.company_profile
+        now = tz.now().date()
+        cur_month_start = now.replace(day=1)
+
+        requests_base = CollectionRequest.objects.filter(
+            receiving_company=company_profile
+        ).select_related('institution', 'receiving_company')
+
+        # Counts by status (all time for inbox; we use these for header)
+        requests_by_status = _requests_by_status_aggregate(requests_base)
+        new_requests = requests_by_status['new']
+        active_requests = requests_by_status['accepted']
+
+        # Completed this month (by completed_at)
+        completed_this_month_qs = requests_base.filter(
+            status=CollectionRequest.Status.COMPLETED,
+            completed_at__isnull=False,
+            completed_at__date__gte=cur_month_start,
+            completed_at__date__lte=now,
+        )
+        completed_this_month = completed_this_month_qs.count()
+        weight_result = completed_this_month_qs.aggregate(
+            total=Sum(Coalesce(F('actual_amount'), F('paper_weight_kg'), Value(Decimal('0'))))
+        )
+        weight_kg_this_month = float(weight_result['total'] or 0)
+
+        institutions_count = InstitutionProfile.objects.filter(
+            parent_company=company_profile
+        ).count()
+
+        # Monthly weights: last 12 months (by completed_at)
+        completed_qs = requests_base.filter(
+            status=CollectionRequest.Status.COMPLETED,
+            completed_at__isnull=False,
+        )
+        monthly_agg = (
+            completed_qs.annotate(
+                month=TruncMonth('completed_at'),
+            )
+            .values('month')
+            .annotate(weight_kg=Sum(Coalesce(F('actual_amount'), F('paper_weight_kg'), Value(Decimal('0')))))
+            .order_by('month')
+        )
+        # Build last 12 months (oldest first) with 0 where no data
+        monthly_map = {item['month'].strftime('%Y-%m'): float(item['weight_kg'] or 0) for item in monthly_agg}
+        y, m = now.year, now.month
+        keys = []
+        for i in range(12):
+            mm, yy = m - i, y
+            while mm < 1:
+                mm += 12
+                yy -= 1
+            keys.append(f'{yy}-{mm:02d}')
+        keys.reverse()
+        monthly_weights = [{'month': k, 'weight_kg': monthly_map.get(k, 0)} for k in keys]
+
+        # Material breakdown: from RequestMaterialLine (completed) + legacy from request material_type
+        material_from_lines = (
+            RequestMaterialLine.objects.filter(
+                collection_request__receiving_company=company_profile,
+                collection_request__status=CollectionRequest.Status.COMPLETED,
+            )
+            .values('material__code', 'material__name')
+            .annotate(weight_kg=Sum('amount_kg'))
+        )
+        material_choices = dict(Material.objects.values_list('code', 'name'))
+        breakdown_dict = {}
+        for row in material_from_lines:
+            code = row['material__code'] or 'other'
+            name = row['material__name'] or material_choices.get(code, code)
+            breakdown_dict[code] = {
+                'material_type': code,
+                'material_type_display': name,
+                'weight_kg': float(row['weight_kg'] or 0),
+            }
+        # Legacy: completed requests with no material_lines (paper_weight_kg / actual_amount by material_type)
+        from django.db.models import Exists, OuterRef
+        has_lines = RequestMaterialLine.objects.filter(collection_request_id=OuterRef('pk'))
+        requests_no_lines = requests_base.filter(
+            status=CollectionRequest.Status.COMPLETED,
+        ).exclude(Exists(has_lines))
+        for req in requests_no_lines:
+            code = req.material_type or 'paper'
+            name = material_choices.get(code, code)
+            w = float(req.actual_amount or req.paper_weight_kg or 0)
+            if code not in breakdown_dict:
+                breakdown_dict[code] = {'material_type': code, 'material_type_display': name, 'weight_kg': 0}
+            breakdown_dict[code]['weight_kg'] += w
+        material_breakdown = list(breakdown_dict.values())
+
+        data = {
+            'new_requests': new_requests,
+            'active_requests': active_requests,
+            'completed_this_month': completed_this_month,
+            'weight_kg_this_month': weight_kg_this_month,
+            'institutions_count': institutions_count,
+            'monthly_weights': monthly_weights,
+            'material_breakdown': material_breakdown,
+            'requests_by_status': requests_by_status,
+        }
+        from .serializers import CompanyDashboardSerializer
+        serializer = CompanyDashboardSerializer(instance=data)
+        return Response(serializer.data)
+
+
 class NotificationViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -898,18 +1017,19 @@ class AdminStatsView(APIView):
             requests_base, start_date, end_date, date_field
         )
 
-        material_choices = dict(CollectionRequest.MaterialType.choices)
+        material_choices = dict(Material.objects.values_list('code', 'name'))
 
         # 1) Materials: from RequestMaterialLine + requests with no lines (use request.material_type + paper_weight_kg)
         lines_qs = RequestMaterialLine.objects.filter(
             collection_request__in=requests_filtered,
-        ).values('material_type').annotate(
+        ).values('material__code').annotate(
             total_kg=Sum('amount_kg'),
             request_count=Count('collection_request_id', distinct=True),
         )
         materials_by_type = {}
         for row in lines_qs:
-            materials_by_type[row['material_type']] = {
+            mt = row['material__code']
+            materials_by_type[mt] = {
                 'total_kg': float(row['total_kg'] or 0),
                 'request_count': row['request_count'],
             }
@@ -993,3 +1113,380 @@ class AdminStatsView(APIView):
         }
         serializer = AdminStatsSerializer(instance=data)
         return Response(serializer.data)
+
+
+class AdminAnalyticsView(APIView):
+    """
+    GET /api/analytics/dashboard/
+    Permission: IsAdministrator.
+    Query params: date_from, date_to (YYYY-MM-DD), basis (created|completed),
+    company_id, institution_type, material_type (optional filters).
+    Returns comprehensive analytics: kpis, materials, companies, institutions,
+    trends, status_funnel, efficiency, bonus.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        start_date = _parse_date_param(request.query_params.get('date_from'))
+        end_date = _parse_date_param(request.query_params.get('date_to'))
+        if not start_date or not end_date:
+            end_date = tz.now().date()
+            start_date = end_date - timedelta(days=365)
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+
+        basis = (request.query_params.get('basis') or 'created').strip().lower()
+        if basis not in ('created', 'completed'):
+            basis = 'created'
+        date_field = 'completed_at' if basis == 'completed' else 'created_at'
+
+        company_id = request.query_params.get('company_id', '').strip()
+        institution_type_filter = request.query_params.get('institution_type', '').strip()
+        material_type_filter = request.query_params.get('material_type', '').strip()  # material code
+
+        requests_base = CollectionRequest.objects.all().select_related(
+            'institution', 'receiving_company'
+        )
+        if company_id:
+            try:
+                requests_base = requests_base.filter(receiving_company_id=int(company_id))
+            except ValueError:
+                pass
+        if institution_type_filter:
+            requests_base = requests_base.filter(
+                institution__institution_type__icontains=institution_type_filter
+            )
+        if basis == 'completed':
+            requests_base = requests_base.filter(
+                status=CollectionRequest.Status.COMPLETED,
+                completed_at__isnull=False,
+            )
+        requests_filtered = _apply_date_filter_by_field(
+            requests_base, start_date, end_date, date_field
+        )
+
+        material_choices = dict(Material.objects.values_list('code', 'name'))
+        now = tz.now().date()
+
+        # --- KPIs ---
+        total_companies = CompanyProfile.objects.count()
+        total_institutions = InstitutionProfile.objects.count()
+        all_requests = CollectionRequest.objects.all()
+        total_requests_all_time = all_requests.count()
+        total_requests_this_month = all_requests.filter(
+            created_at__year=now.year, created_at__month=now.month
+        ).count()
+        cur_year_start = now.replace(month=1, day=1)
+        total_requests_this_year = all_requests.filter(created_at__date__gte=cur_year_start).count()
+
+        completed_all = CollectionRequest.objects.filter(status=CollectionRequest.Status.COMPLETED)
+        total_weight_all = completed_all.aggregate(t=Sum('paper_weight_kg'))['t'] or Decimal('0')
+        total_weight_this_month = completed_all.filter(
+            completed_at__year=now.year, completed_at__month=now.month
+        ).aggregate(t=Sum('paper_weight_kg'))['t'] or Decimal('0')
+        total_weight_period = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED
+        ).aggregate(t=Sum('paper_weight_kg'))['t'] or Decimal('0')
+
+        request_count_period = requests_filtered.count()
+        avg_weight_per_request = (
+            float(total_weight_period) / request_count_period
+            if request_count_period else 0
+        )
+
+        total_estimated_value = requests_filtered.aggregate(
+            t=Sum('estimated_value')
+        )['t'] or Decimal('0')
+        total_actual_value = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED
+        ).aggregate(t=Sum('actual_value'))['t'] or Decimal('0')
+
+        prev_start = start_date - timedelta(days=max(1, (end_date - start_date).days))
+        prev_end = start_date - timedelta(days=1)
+        requests_prev = _apply_date_filter_by_field(
+            requests_base.filter(status=CollectionRequest.Status.COMPLETED),
+            prev_start, prev_end, date_field
+        )
+        weight_prev = requests_prev.aggregate(t=Sum('paper_weight_kg'))['t'] or Decimal('0')
+        weight_trend = (
+            (float(total_weight_period) - float(weight_prev)) / float(weight_prev) * 100
+            if weight_prev else 0
+        )
+
+        kpis = {
+            'total_companies': total_companies,
+            'total_institutions': total_institutions,
+            'total_requests_all_time': total_requests_all_time,
+            'total_requests_this_month': total_requests_this_month,
+            'total_requests_this_year': total_requests_this_year,
+            'total_requests_period': request_count_period,
+            'total_weight_kg_all_time': float(total_weight_all),
+            'total_weight_kg_this_month': float(total_weight_this_month),
+            'total_weight_kg_period': float(total_weight_period),
+            'avg_weight_per_request': round(avg_weight_per_request, 2),
+            'total_estimated_value': float(total_estimated_value),
+            'total_actual_value': float(total_actual_value),
+            'weight_trend_percent': round(weight_trend, 1),
+        }
+
+        # --- Materials ---
+        from django.db.models import Exists, OuterRef
+        has_lines = RequestMaterialLine.objects.filter(collection_request_id=OuterRef('pk'))
+        lines_qs = RequestMaterialLine.objects.filter(
+            collection_request__in=requests_filtered,
+        ).values('material__code').annotate(
+            total_kg=Sum('amount_kg'),
+            request_count=Count('collection_request_id', distinct=True),
+        )
+        materials_by_type = {}
+        for row in lines_qs:
+            mt = row['material__code']
+            if material_type_filter and mt != material_type_filter:
+                continue
+            materials_by_type[mt] = {
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+        requests_no_lines = requests_filtered.filter(~Exists(has_lines)).values(
+            'material_type', 'paper_weight_kg'
+        )
+        for row in requests_no_lines:
+            mt = row['material_type'] or 'paper'
+            if material_type_filter and mt != material_type_filter:
+                continue
+            kg = float(row['paper_weight_kg'] or 0)
+            if mt not in materials_by_type:
+                materials_by_type[mt] = {'total_kg': 0, 'request_count': 0}
+            materials_by_type[mt]['total_kg'] += kg
+            materials_by_type[mt]['request_count'] += 1
+        materials = [
+            {
+                'material_type': mt,
+                'material_type_display': material_choices.get(mt, mt),
+                'total_kg': materials_by_type[mt]['total_kg'],
+                'request_count': materials_by_type[mt]['request_count'],
+            }
+            for mt in sorted(materials_by_type.keys(), key=lambda x: -materials_by_type[x]['total_kg'])
+        ]
+
+        # --- Top companies by weight ---
+        top_companies_qs = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED
+        ).values(
+            'receiving_company_id', 'receiving_company__company_name'
+        ).annotate(
+            total_kg=Sum('paper_weight_kg'),
+            request_count=Count('id'),
+        ).order_by('-total_kg')[:20]
+        top_companies = [
+            {
+                'company_id': row['receiving_company_id'],
+                'company_name': row['receiving_company__company_name'] or '—',
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+            for row in top_companies_qs
+        ]
+
+        # Institutions per company
+        inst_per_company = InstitutionProfile.objects.values(
+            'parent_company_id', 'parent_company__company_name'
+        ).annotate(institution_count=Count('id')).order_by('-institution_count')[:20]
+        institutions_per_company = [
+            {
+                'company_id': row['parent_company_id'],
+                'company_name': row['parent_company__company_name'] or '—',
+                'institution_count': row['institution_count'],
+            }
+            for row in inst_per_company
+        ]
+
+        # --- Top organizations ---
+        top_org_qs = requests_filtered.values(
+            'institution_id', 'institution__institution_name', 'institution__institution_type'
+        ).annotate(
+            total_kg=Sum('paper_weight_kg'),
+            request_count=Count('id'),
+        ).order_by('-total_kg')[:30]
+        top_organizations = [
+            {
+                'institution_id': row['institution_id'],
+                'institution_name': row['institution__institution_name'] or '—',
+                'institution_type': row['institution__institution_type'] or '—',
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+            for row in top_org_qs
+        ]
+
+        # --- Institution type breakdown ---
+        inst_type_qs = requests_filtered.values(
+            'institution__institution_type'
+        ).annotate(
+            total_kg=Sum('paper_weight_kg'),
+            request_count=Count('id'),
+        ).order_by('-total_kg')
+        institution_type_breakdown = [
+            {
+                'institution_type': row['institution__institution_type'] or '—',
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+            for row in inst_type_qs
+        ]
+
+        # --- Requests by status (include cancelled) ---
+        status_agg = requests_filtered.aggregate(
+            new=Count(Case(When(status=CollectionRequest.Status.NEW, then=1))),
+            accepted=Count(Case(When(status=CollectionRequest.Status.ACCEPTED, then=1))),
+            completed=Count(Case(When(status=CollectionRequest.Status.COMPLETED, then=1))),
+            cancelled=Count(Case(When(status=CollectionRequest.Status.CANCELLED, then=1))),
+        )
+        status_labels = {
+            'new': 'Новые', 'accepted': 'Принятые', 'completed': 'Завершённые', 'cancelled': 'Отменённые',
+        }
+        requests_by_status = [
+            {'status': k, 'status_display': status_labels.get(k, k), 'count': status_agg[k] or 0}
+            for k in ('new', 'accepted', 'completed', 'cancelled')
+        ]
+
+        # --- Weight & requests over time ---
+        range_days = (end_date - start_date).days
+        if range_days <= 31:
+            trunc_fn = TruncDate
+            date_format = '%d.%m'
+        elif range_days <= 93:
+            trunc_fn = TruncWeek
+            date_format = '%d.%m'
+        else:
+            trunc_fn = TruncMonth
+            date_format = '%b %Y'
+        weight_ot = requests_filtered.annotate(
+            period=trunc_fn(date_field)
+        ).values('period').annotate(total_kg=Sum('paper_weight_kg')).order_by('period')
+        weight_over_time = [
+            {
+                'period_label': row['period'].strftime(date_format) if row['period'] and hasattr(row['period'], 'strftime') else str(row['period'] or ''),
+                'date_start': row['period'].isoformat() if row['period'] and hasattr(row['period'], 'isoformat') else '',
+                'total_kg': float(row['total_kg'] or 0),
+            }
+            for row in weight_ot
+        ]
+        requests_ot = requests_filtered.annotate(
+            period=trunc_fn(date_field)
+        ).values('period').annotate(count=Count('id')).order_by('period')
+        requests_over_time = [
+            {
+                'period_label': row['period'].strftime(date_format) if row['period'] and hasattr(row['period'], 'strftime') else str(row['period'] or ''),
+                'date_start': row['period'].isoformat() if row['period'] and hasattr(row['period'], 'isoformat') else '',
+                'count': row['count'],
+            }
+            for row in requests_ot
+        ]
+
+        # --- Completion rate by company ---
+        completed_by_company = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED
+        ).values('receiving_company_id', 'receiving_company__company_name').annotate(
+            completed=Count('id'),
+        )
+        total_by_company = requests_filtered.values(
+            'receiving_company_id', 'receiving_company__company_name'
+        ).annotate(total=Count('id'))
+        total_map = {r['receiving_company_id']: r['total'] for r in total_by_company}
+        completed_map = {r['receiving_company_id']: r['completed'] for r in completed_by_company}
+        completion_rate_company = []
+        for r in total_by_company:
+            cid = r['receiving_company_id']
+            total = r['total']
+            completed = completed_map.get(cid, 0)
+            completion_rate_company.append({
+                'company_id': cid,
+                'company_name': r['receiving_company__company_name'] or '—',
+                'total': total,
+                'completed': completed,
+                'completion_rate_percent': round(100 * completed / total, 1) if total else 0,
+            })
+
+        # --- Efficiency: avg completion time (accepted -> completed) ---
+        completed_reqs = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED,
+            completed_at__isnull=False,
+        )
+        avg_completion_hours = None
+        if completed_reqs.exists():
+            delta_expr = ExpressionWrapper(
+                F('completed_at') - F('created_at'),
+                output_field=DurationField(),
+            )
+            avg_delta = completed_reqs.annotate(delta=delta_expr).aggregate(avg_delta=Avg('delta'))['avg_delta']
+            avg_seconds = avg_delta
+            if avg_seconds is not None and getattr(avg_seconds, 'total_seconds', None):
+                avg_completion_hours = round(avg_seconds.total_seconds() / 3600, 1)
+
+        # --- Bonus: top point earners, popular products ---
+        bonus_confirmed = InstitutionBonus.objects.filter(status=InstitutionBonus.Status.CONFIRMED)
+        bonus_over_time = list(
+            bonus_confirmed.filter(confirmed_at__isnull=False).annotate(
+                period=TruncMonth('confirmed_at')
+            ).values('period').annotate(
+                total_points=Sum(Coalesce(F('awarded_amount'), F('calculated_amount')))
+            ).order_by('period')
+        )
+        bonus_over_time_serialized = [
+            {
+                'period_label': row['period'].strftime('%b %Y') if row.get('period') and hasattr(row['period'], 'strftime') else '',
+                'total_points': float(row.get('total_points') or 0),
+            }
+            for row in bonus_over_time
+        ]
+        top_point_institutions = list(
+            bonus_confirmed.values('institution_id', 'institution__institution_name').annotate(
+                total_points=Sum(Coalesce(F('awarded_amount'), F('calculated_amount')))
+            ).order_by('-total_points')[:15]
+        )
+        top_point_institutions_serialized = [
+            {
+                'institution_id': r['institution_id'],
+                'institution_name': r['institution__institution_name'] or '—',
+                'total_points': float(r.get('total_points') or 0),
+            }
+            for r in top_point_institutions
+        ]
+        popular_products = list(
+            PointsOrderLine.objects.filter(
+                order__status=PointsOrder.Status.COMPLETED
+            ).values('product_id', 'product__name').annotate(
+                total_quantity=Sum('quantity'),
+                order_count=Count('order_id', distinct=True),
+            ).order_by('-total_quantity')[:15]
+        )
+        popular_products_serialized = [
+            {
+                'product_id': r['product_id'],
+                'product_name': r['product__name'] or '—',
+                'total_quantity': r['total_quantity'],
+                'order_count': r['order_count'],
+            }
+            for r in popular_products
+        ]
+
+        payload = {
+            'period': {'date_from': start_date.isoformat(), 'date_to': end_date.isoformat(), 'basis': basis},
+            'kpis': kpis,
+            'materials': materials,
+            'top_companies': top_companies,
+            'institutions_per_company': institutions_per_company,
+            'top_organizations': top_organizations,
+            'institution_type_breakdown': institution_type_breakdown,
+            'requests_by_status': requests_by_status,
+            'weight_over_time': weight_over_time,
+            'requests_over_time': requests_over_time,
+            'completion_rate_by_company': completion_rate_company,
+            'avg_completion_hours': avg_completion_hours,
+            'bonus_over_time': bonus_over_time_serialized,
+            'top_point_institutions': top_point_institutions_serialized,
+            'popular_products': popular_products_serialized,
+        }
+        return Response(payload)

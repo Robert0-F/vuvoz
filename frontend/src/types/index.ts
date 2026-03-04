@@ -75,7 +75,8 @@ export interface PointsHistoryItem {
 
 export type RequestStatus = 'new' | 'accepted' | 'completed' | 'cancelled'
 export type Urgency = 'low' | 'medium' | 'high'
-export type MaterialType = 'paper' | 'cardboard' | 'newspapers' | 'mixed' | 'archive'
+/** Material code (e.g. cardboard, paper). New codes can be added via admin. */
+export type MaterialType = string
 
 export interface CollectionRequest {
   id: number
@@ -84,6 +85,8 @@ export interface CollectionRequest {
   institution_name: string
   receiving_company: number
   receiving_company_name: string
+  receiving_company_phone?: string
+  receiving_company_email?: string
   status: RequestStatus
   urgency?: Urgency
   material_type?: MaterialType
@@ -154,10 +157,18 @@ export interface CurrentPrice {
   price_per_kg: string
 }
 
+export interface Material {
+  id: number
+  name: string
+  code: string
+  is_active: boolean
+}
+
 export interface PriceList {
   id: number
-  material_type: string
-  material_type_display: string
+  material: number
+  material_code: string
+  material_name: string
   price_per_kg: string
   valid_from: string
   valid_to: string | null

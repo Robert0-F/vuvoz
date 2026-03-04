@@ -120,6 +120,7 @@ defineEmits<{
   font-weight: 600;
   font-size: 1rem;
   padding: 0.875rem 1.75rem;
+  min-height: 44px;
   border-radius: 12px;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;

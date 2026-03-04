@@ -12,6 +12,7 @@ from .models import (
     InstitutionRegistrationRequest,
     InAppNotification,
     InstitutionProfile,
+    Material,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
@@ -394,15 +395,20 @@ class InstitutionUpdateSerializer(serializers.ModelSerializer):
 
 
 class MaterialLineSerializer(serializers.Serializer):
-    """One material type + weight for request create."""
+    """One material type (code) + weight for request create."""
 
-    material_type = serializers.ChoiceField(
-        choices=[c[0] for c in CollectionRequest.MaterialType.choices]
-    )
+    material_type = serializers.CharField(max_length=32)
     amount_kg = serializers.DecimalField(max_digits=10, decimal_places=2)
 
     def validate_amount_kg(self, value):
         return validate_paper_weight_kg(value)
+
+    def validate_material_type(self, value):
+        if not Material.objects.filter(code=value, is_active=True).exists():
+            raise serializers.ValidationError(
+                f'Материал с кодом "{value}" не найден или не активен.'
+            )
+        return value
 
 
 class CollectionRequestCreateSerializer(serializers.Serializer):
@@ -438,9 +444,17 @@ class CollectionRequestSerializer(serializers.ModelSerializer):
     receiving_company_name = serializers.CharField(
         source='receiving_company.company_name', read_only=True
     )
-    material_type_display = serializers.CharField(
-        source='get_material_type_display', read_only=True
-    )
+    receiving_company_phone = serializers.SerializerMethodField()
+    receiving_company_email = serializers.SerializerMethodField()
+
+    def get_receiving_company_phone(self, obj):
+        company = getattr(obj, 'receiving_company', None)
+        return getattr(company, 'contact_phone', None) or '' if company else ''
+
+    def get_receiving_company_email(self, obj):
+        company = getattr(obj, 'receiving_company', None)
+        return getattr(company, 'contact_email', None) or '' if company else ''
+    material_type_display = serializers.SerializerMethodField()
     material_lines = serializers.SerializerMethodField()
 
     class Meta:
@@ -452,6 +466,8 @@ class CollectionRequestSerializer(serializers.ModelSerializer):
             'institution_name',
             'receiving_company',
             'receiving_company_name',
+            'receiving_company_phone',
+            'receiving_company_email',
             'status',
             'urgency',
             'material_type',
@@ -478,12 +494,21 @@ class CollectionRequestSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {'paper_weight_kg': {'required': False}}
 
+    def get_material_type_display(self, obj):
+        return Material.get_display_name(obj.material_type)
+
     def get_material_lines(self, instance):
         lines = list(
-            instance.material_lines.values('material_type', 'amount_kg').order_by('id')
+            instance.material_lines.select_related('material').values(
+                'material__code', 'material__name', 'amount_kg'
+            ).order_by('id')
         )
         return [
-            {'material_type': l['material_type'], 'amount_kg': str(l['amount_kg'])}
+            {
+                'material_type': l['material__code'],
+                'material_type_display': l['material__name'] or l['material__code'],
+                'amount_kg': str(l['amount_kg']),
+            }
             for l in lines
         ]
 
@@ -532,6 +557,25 @@ class CompanyStatsSerializer(serializers.Serializer):
     monthly_comparison = serializers.DictField(required=False)
     weight_by_institution_type = serializers.DictField(required=False)
     avg_processing_time_hours = serializers.FloatField(required=False)
+
+
+class CompanyDashboardSerializer(serializers.Serializer):
+    """Response for /api/stats/company/dashboard/ – KPIs, monthly weights, material breakdown."""
+
+    new_requests = serializers.IntegerField()
+    active_requests = serializers.IntegerField()
+    completed_this_month = serializers.IntegerField()
+    weight_kg_this_month = serializers.FloatField()
+    institutions_count = serializers.IntegerField()
+    monthly_weights = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='List of { month: YYYY-MM, weight_kg } for last 12 months',
+    )
+    material_breakdown = serializers.ListField(
+        child=serializers.DictField(),
+        help_text='List of { material_type, material_type_display, weight_kg }',
+    )
+    requests_by_status = serializers.DictField(child=serializers.IntegerField())
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -611,19 +655,28 @@ class AdminStatsSerializer(serializers.Serializer):
     )
 
 
-class PriceListSerializer(serializers.ModelSerializer):
-    """CRUD for PriceList (admin only)."""
+class MaterialSerializer(serializers.ModelSerializer):
+    """CRUD for Material (admin). Extensible material types for prices and requests."""
 
-    material_type_display = serializers.CharField(
-        source='get_material_type_display', read_only=True
-    )
+    class Meta:
+        model = Material
+        fields = ['id', 'name', 'code', 'is_active']
+
+
+class PriceListSerializer(serializers.ModelSerializer):
+    """CRUD for PriceList (admin only). One record per material (unique)."""
+
+    material_name = serializers.CharField(source='material.name', read_only=True)
+    material_code = serializers.CharField(source='material.code', read_only=True)
+    price_per_kg = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0)
 
     class Meta:
         model = PriceList
         fields = [
             'id',
-            'material_type',
-            'material_type_display',
+            'material',
+            'material_code',
+            'material_name',
             'price_per_kg',
             'valid_from',
             'valid_to',
@@ -631,6 +684,11 @@ class PriceListSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['created_at']
+
+    def validate_material(self, value):
+        if self.instance is None and PriceList.objects.filter(material=value).exists():
+            raise serializers.ValidationError('Цена для этого материала уже существует.')
+        return value
 
 
 class CurrentPricesSerializer(serializers.Serializer):
@@ -680,10 +738,7 @@ class CollectionRequestCompleteSerializer(serializers.Serializer):
 class CalculatePreviewSerializer(serializers.Serializer):
     """Request for price calculation preview. Single line or multi-line."""
 
-    material_type = serializers.ChoiceField(
-        choices=[c[0] for c in CollectionRequest.MaterialType.choices],
-        required=False,
-    )
+    material_type = serializers.CharField(max_length=32, required=False)
     amount_kg = serializers.DecimalField(
         max_digits=10, decimal_places=2,
         required=False,

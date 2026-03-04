@@ -114,19 +114,22 @@ const orgTypes = [
 ]
 
 const materialOptions = [
-  { value: 'paper', label: 'Бумага' },
   { value: 'cardboard', label: 'Картон' },
-  { value: 'newspapers', label: 'Газеты' },
-  { value: 'mixed', label: 'Смешанная' },
+  { value: 'paper', label: 'Макулатура' },
+  { value: 'canisters', label: 'Канистры/флаконы' },
+  { value: 'polyethylene', label: 'Полиэтилен/стрейч пленка' },
+  { value: 'metal', label: 'Металл бытовой' },
+  { value: 'glass', label: 'Стекло (бутылки)' },
 ]
 
 // Fallback prices (руб/кг) when API requires auth
 const defaultPrices: Record<string, number> = {
-  paper: 5,
   cardboard: 3,
-  newspapers: 4,
-  mixed: 3.5,
-  archive: 6,
+  paper: 5,
+  canisters: 4,
+  polyethylene: 2,
+  metal: 8,
+  glass: 1,
 }
 
 const form = reactive({
@@ -271,7 +274,8 @@ async function submitLead() {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.85rem;
+  min-height: 44px;
   border-radius: 10px;
   border: 2px solid var(--vuvoz-border);
   background: #fff;
@@ -299,8 +303,10 @@ async function submitLead() {
 .home-calc__slider {
   flex: 1;
   height: 8px;
+  padding: 18px 0;
   border-radius: 4px;
   accent-color: var(--vuvoz-primary);
+  touch-action: none;
 }
 
 .home-calc__volume-value {
@@ -310,10 +316,11 @@ async function submitLead() {
 
 .home-calc__select {
   width: 100%;
-  padding: 0.6rem 0.75rem;
+  padding: 0.75rem 1rem;
+  min-height: 48px;
   border-radius: 10px;
   border: 2px solid var(--vuvoz-border);
-  font-size: 1rem;
+  font-size: 16px;
   background: #fff;
 }
 
@@ -353,6 +360,7 @@ async function submitLead() {
 .home-calc__cta {
   width: 100%;
   padding: 0.875rem 1.25rem;
+  min-height: 48px;
   border-radius: 10px;
   border: none;
   background: var(--vuvoz-primary);

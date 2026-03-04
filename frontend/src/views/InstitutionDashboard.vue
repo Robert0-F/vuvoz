@@ -3,7 +3,7 @@
     <header class="inst-dashboard__header">
       <div class="inst-dashboard__header-inner">
         <div class="inst-dashboard__brand">Vuvoz</div>
-        <nav class="inst-dashboard__nav">
+        <nav class="inst-dashboard__nav inst-dashboard__nav--desktop">
           <button
             type="button"
             class="inst-dashboard__tab"
@@ -58,6 +58,37 @@
         </div>
       </div>
     </header>
+
+    <!-- Mobile bottom navigation -->
+    <nav class="inst-dashboard__bottom-nav">
+      <button
+        type="button"
+        class="inst-dashboard__bottom-tab"
+        :class="{ 'inst-dashboard__bottom-tab--active': mainTab === 'requests' }"
+        @click="mainTab = 'requests'"
+      >
+        <v-icon icon="mdi-file-document-multiple" size="24" />
+        <span>Заявки</span>
+      </button>
+      <button
+        type="button"
+        class="inst-dashboard__bottom-tab"
+        :class="{ 'inst-dashboard__bottom-tab--active': mainTab === 'stats' }"
+        @click="mainTab = 'stats'"
+      >
+        <v-icon icon="mdi-chart-bar" size="24" />
+        <span>Статистика</span>
+      </button>
+      <button
+        type="button"
+        class="inst-dashboard__bottom-tab"
+        :class="{ 'inst-dashboard__bottom-tab--active': mainTab === 'points' }"
+        @click="mainTab = 'points'"
+      >
+        <v-icon icon="mdi-leaf" size="24" />
+        <span>Баллы</span>
+      </button>
+    </nav>
 
     <main class="inst-dashboard__main">
       <div class="inst-dashboard__container">
@@ -199,8 +230,8 @@
 
     <!-- Modals -->
     <Teleport to="body">
-      <div v-if="showEditProfile" class="inst-modal-backdrop" @click.self="showEditProfile = false">
-        <div class="inst-modal hp-card inst-modal--wide">
+      <div v-if="showEditProfile" class="inst-modal-backdrop inst-modal-backdrop--mobile" @click.self="showEditProfile = false">
+        <div class="inst-modal hp-card inst-modal--wide inst-modal--mobile">
           <h3 class="inst-modal__title">Изменить данные учреждения</h3>
           <v-text-field v-model="profileEdit.institution_name" label="Название учреждения *" variant="outlined" class="mb-3" :error-messages="profileEditErrors.institution_name" />
           <v-text-field v-model="profileEdit.contact_person" label="Контактное лицо *" variant="outlined" class="mb-3" :error-messages="profileEditErrors.contact_person" />
@@ -214,32 +245,36 @@
         </div>
       </div>
 
-      <div v-if="pointsHistoryModal" class="inst-modal-backdrop" @click.self="pointsHistoryModal = false">
-        <div class="inst-modal hp-card">
+      <div v-if="pointsHistoryModal" class="inst-modal-backdrop inst-modal-backdrop--mobile" @click.self="pointsHistoryModal = false">
+        <div class="inst-modal hp-card inst-modal--mobile">
           <div class="inst-modal__header">
             <h3 class="inst-modal__title">История баллов</h3>
             <button type="button" class="inst-modal__close" @click="pointsHistoryModal = false">×</button>
           </div>
           <div class="inst-modal__body">
-            <table v-if="pointsHistory.length" class="inst-history-table">
-              <thead>
-                <tr><th>Сумма</th><th>Дата</th><th>Заявка / Заказ</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="(h, i) in pointsHistory" :key="i">
-                  <td :class="h.type === 'expense' ? 'text-error' : 'text-success'">{{ h.type === 'expense' ? h.amount : '+' + h.amount }}</td>
-                  <td>{{ formatPointsDate(h.date) }}</td>
-                  <td>{{ h.reference }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <template v-if="pointsHistory.length">
+              <div class="inst-history-table-wrap">
+                <table class="inst-history-table">
+                  <thead>
+                    <tr><th>Сумма</th><th>Дата</th><th>Заявка / Заказ</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(h, i) in pointsHistory" :key="i">
+                      <td :class="h.type === 'expense' ? 'text-error' : 'text-success'">{{ h.type === 'expense' ? h.amount : '+' + h.amount }}</td>
+                      <td>{{ formatPointsDate(h.date) }}</td>
+                      <td>{{ h.reference }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
             <p v-else class="inst-modal__empty">Нет записей.</p>
           </div>
         </div>
       </div>
 
-      <div v-if="orderDialog" class="inst-modal-backdrop" @click.self="orderDialog = false">
-        <div class="inst-modal hp-card">
+      <div v-if="orderDialog" class="inst-modal-backdrop inst-modal-backdrop--mobile" @click.self="orderDialog = false">
+        <div class="inst-modal hp-card inst-modal--mobile">
           <h3 class="inst-modal__title">Оформление заказа</h3>
           <p class="inst-modal__sub">В заказе: {{ orderItems.map(i => i.name + ' × ' + i.quantity).join(', ') }}. Итого: {{ orderTotal }} баллов.</p>
           <v-alert v-if="orderError" type="error" density="compact" class="mb-3">{{ orderError }}</v-alert>
@@ -297,15 +332,20 @@ const currentPrices = ref<CurrentPrice[]>([])
 const weightLimits = ref<{ min_kg: string; max_kg: string } | null>(null)
 const submitting = ref(false)
 
-const materialTypeItems = [
-  { title: 'Бумага', value: 'paper' },
-  { title: 'Картон', value: 'cardboard' },
-  { title: 'Газеты', value: 'newspapers' },
-  { title: 'Смешанная', value: 'mixed' },
-  { title: 'Архивная', value: 'archive' },
-]
-
 const materialLines = ref<{ material_type: string; amount_kg: string }[]>([{ material_type: 'paper', amount_kg: '' }])
+
+const materialTypeItems = computed(() => {
+  const fromApi = currentPrices.value.map((p) => ({ title: p.material_type_display || p.material_type, value: p.material_type }))
+  if (fromApi.length) return fromApi
+  return [
+    { title: 'Картон', value: 'cardboard' },
+    { title: 'Макулатура', value: 'paper' },
+    { title: 'Канистры/флаконы', value: 'canisters' },
+    { title: 'Полиэтилен/стрейч пленка', value: 'polyethylene' },
+    { title: 'Металл бытовой', value: 'metal' },
+    { title: 'Стекло (бутылки)', value: 'glass' },
+  ]
+})
 const form = reactive({ desired_date: '', comment: '' })
 const errors = reactive<{ material_lines?: string }>({})
 
@@ -344,7 +384,8 @@ const avatarText = computed(() => {
 })
 
 function addMaterialLine() {
-  materialLines.value.push({ material_type: 'paper', amount_kg: '' })
+  const firstType = currentPrices.value[0]?.material_type || 'paper'
+  materialLines.value.push({ material_type: firstType, amount_kg: '' })
 }
 function removeMaterialLine(idx: number) {
   if (materialLines.value.length > 1) materialLines.value.splice(idx, 1)
@@ -623,6 +664,12 @@ watch(mainTab, (tab) => {
   gap: 0.25rem;
 }
 
+@media (max-width: 960px) {
+  .inst-dashboard__nav--desktop {
+    display: none;
+  }
+}
+
 .inst-dashboard__tab {
   padding: 0.5rem 1rem;
   border: none;
@@ -717,6 +764,13 @@ watch(mainTab, (tab) => {
 
 .inst-dashboard__main {
   padding: 1.5rem;
+  padding-bottom: 5rem;
+}
+
+@media (min-width: 961px) {
+  .inst-dashboard__main {
+    padding-bottom: 1.5rem;
+  }
 }
 
 .inst-dashboard__container {
@@ -796,6 +850,55 @@ watch(mainTab, (tab) => {
   font-size: 0.9rem;
   color: var(--vuvoz-text-muted);
   margin: 0 0 0.15rem;
+}
+
+/* Mobile bottom navigation */
+.inst-dashboard__bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 99;
+  background: var(--vuvoz-surface-elevated);
+  border-top: 1px solid var(--vuvoz-border);
+  padding: 0.5rem 0;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+}
+
+@media (max-width: 960px) {
+  .inst-dashboard__bottom-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+  }
+}
+
+.inst-dashboard__bottom-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem;
+  min-height: 44px;
+  min-width: 64px;
+  border: none;
+  background: transparent;
+  color: var(--vuvoz-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--vuvoz-radius-sm);
+  transition: color 0.2s, background 0.2s;
+  &:hover {
+    color: var(--vuvoz-text);
+    background: var(--vuvoz-surface-muted);
+  }
+  &--active {
+    color: var(--vuvoz-primary);
+    background: rgba(13, 148, 136, 0.08);
+  }
 }
 
 .inst-dashboard__section {
@@ -932,6 +1035,12 @@ watch(mainTab, (tab) => {
   z-index: 9999;
   padding: 1rem;
 }
+@media (max-width: 768px) {
+  .inst-modal-backdrop--mobile {
+    padding: 0;
+    align-items: flex-end;
+  }
+}
 
 .inst-modal {
   background: #fff;
@@ -943,6 +1052,15 @@ watch(mainTab, (tab) => {
   overflow-y: auto;
   border-radius: var(--vuvoz-radius-lg);
   box-shadow: var(--vuvoz-shadow-xl);
+}
+@media (max-width: 768px) {
+  .inst-modal--mobile {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: var(--vuvoz-radius-lg) var(--vuvoz-radius-lg) 0 0;
+    padding: 1.25rem 1rem 2rem;
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+  }
 }
 
 .inst-modal__header {
@@ -958,14 +1076,17 @@ watch(mainTab, (tab) => {
 }
 
 .inst-modal__close {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border: none;
   background: var(--vuvoz-surface-muted);
   border-radius: var(--vuvoz-radius-sm);
   font-size: 1.5rem;
   cursor: pointer;
   color: var(--vuvoz-text);
+  &:hover { background: var(--vuvoz-border); }
 }
 
 .inst-modal__sub {
@@ -976,6 +1097,12 @@ watch(mainTab, (tab) => {
 
 .inst-modal__body {
   margin-bottom: 1rem;
+}
+
+.inst-history-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.5rem;
 }
 
 .inst-modal__empty {
