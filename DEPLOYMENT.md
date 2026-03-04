@@ -165,6 +165,41 @@ sudo systemctl start vuvoz
 
 ---
 
+## Тестирование по IP (без домена)
+
+Если сервер доступен по IP (например, Ubuntu с адресом **85.239.40.127**) и нужно открыть проект в браузере по `http://85.239.40.127`:
+
+### 1. Переменные окружения
+
+В `.env` на сервере укажите (подставьте свой IP при необходимости):
+
+```bash
+ALLOWED_HOSTS=85.239.40.127,localhost,127.0.0.1
+CORS_ALLOWED_ORIGINS=http://85.239.40.127
+CSRF_TRUSTED_ORIGINS=http://85.239.40.127
+DJANGO_DEBUG=False
+```
+
+Остальные переменные — как в `.env.example` (`DJANGO_SECRET_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL` при использовании Docker).
+
+### 2. Запуск (Docker)
+
+На сервере в каталоге проекта:
+
+```bash
+docker compose up --build -d
+```
+
+Сайт будет доступен по **http://85.239.40.127** (порт 80). Суперпользователь: `docker compose exec backend python manage.py createsuperuser`.
+
+В `nginx.conf` можно оставить `server_name localhost;` — при одном блоке Nginx примет запросы с любым Host. Для ясности можно указать `server_name 85.239.40.127 localhost;`.
+
+### 3. Запуск без Docker (Gunicorn + Nginx)
+
+Соберите фронтенд и статику, настройте Nginx с `server_name 85.239.40.127;` и проксированием на Gunicorn. В systemd или при запуске Gunicorn передайте те же переменные окружения. Подробнее — секции [Production — один сервер](#production--один-сервер) и [Production — Nginx + Gunicorn](#production--nginx--gunicorn).
+
+---
+
 ## Docker (PostgreSQL + Django + Nginx)
 
 ### 1. Подготовка .env
@@ -173,7 +208,7 @@ sudo systemctl start vuvoz
 
 ```bash
 cp .env.example .env
-# Отредактировать POSTGRES_PASSWORD, DJANGO_SECRET_KEY, ALLOWED_HOSTS
+# Отредактировать POSTGRES_PASSWORD, DJANGO_SECRET_KEY, ALLOWED_HOSTS (и CORS/CSRF при доступе по IP или домену)
 ```
 
 ### 2. Запуск
