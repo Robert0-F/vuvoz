@@ -1,12 +1,11 @@
 """
 Signals for email and in-app notifications.
 """
-from django.core.mail import send_mail
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver, Signal
-from django.conf import settings
 
-from .models import BonusConfig, CollectionRequest, InstitutionBonus, InAppNotification, InstitutionProfile
+from .models import BonusConfig, CollectionRequest, InstitutionBonus, InAppNotification, InstitutionProfile, SupportConfig
+from .services.email_service import send_platform_email
 
 # Custom signal: institution created with credentials (sent from serializer)
 institution_created = Signal()
@@ -24,13 +23,7 @@ def send_institution_credentials(sender, instance, password, email, **kwargs):
         f"Пожалуйста, смените пароль после первого входа.\n\n"
         f"С уважением,\nСервис вывоза макулатуры"
     )
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=True,
-    )
+    send_platform_email(subject=subject, message=body, recipient_list=[email])
 
 
 @receiver(pre_save, sender=CollectionRequest)
@@ -59,13 +52,7 @@ def _notify_company_new_request(instance):
         f"Срочность: {instance.get_urgency_display()}\n\n"
         f"С уважением,\nСервис вывоза макулатуры"
     )
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[to_email],
-        fail_silently=True,
-    )
+    send_platform_email(subject=subject, message=body, recipient_list=[to_email])
     InAppNotification.objects.create(
         user=company_user,
         title="Новый запрос на вывоз",
@@ -79,26 +66,36 @@ def _notify_institution_status_change(instance, previous_status):
     to_email = instance.institution.email
     inst_user = instance.institution.user
     num = instance.request_number or str(instance.pk)
-    status_display = dict(CollectionRequest.Status.choices).get(instance.status, instance.status)
+    status_labels = {
+        'accepted': 'Принята',
+        'pending_confirmation': 'Ожидает подтверждения вывоза',
+        'completed': 'Завершена',
+    }
+    status_display = status_labels.get(instance.status, instance.status)
     subject = f"Заявка {num} — обновление статуса"
+    extra = ''
+    if instance.status == CollectionRequest.Status.ACCEPTED and instance.actual_collection_date:
+        extra = f"\nДата вывоза (назначена компанией): {instance.actual_collection_date}\n"
+    if instance.status == CollectionRequest.Status.PENDING_CONFIRMATION:
+        extra = (
+            f"\nКомпания указала фактический вес: {instance.actual_amount} кг."
+            f"\nПодтвердите, что вывоз выполнен с этим весом.\n"
+        )
     body = (
         f"Здравствуйте,\n\n"
         f"Статус вашей заявки {num} изменён.\n\n"
         f"Новый статус: {status_display}\n"
-        f"Вес: {instance.paper_weight_kg} кг\n\n"
+        f"Вес заявки: {instance.paper_weight_kg} кг{extra}\n"
         f"С уважением,\nСервис вывоза макулатуры"
     )
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[to_email],
-        fail_silently=True,
-    )
+    send_platform_email(subject=subject, message=body, recipient_list=[to_email])
+    notif_msg = f"Заявка {num}: {status_display}."
+    if instance.status == CollectionRequest.Status.PENDING_CONFIRMATION:
+        notif_msg = f"Заявка {num}: подтвердите фактический вес {instance.actual_amount} кг."
     InAppNotification.objects.create(
         user=inst_user,
         title="Обновление статуса заявки",
-        message=f"Заявка {num}: {status_display}.",
+        message=notif_msg,
         link="/institution",
     )
 
@@ -136,7 +133,19 @@ def on_collection_request_save(sender, instance, created, **kwargs):
         _create_bonus_if_completed(instance)
         return
     previous = getattr(instance, '_previous_status', None)
-    if previous != instance.status and instance.status in ('accepted', 'completed'):
+    if previous != instance.status and instance.status in (
+        'accepted', 'pending_confirmation', 'completed',
+    ):
         _notify_institution_status_change(instance, previous)
     if instance.status == CollectionRequest.Status.COMPLETED:
         _create_bonus_if_completed(instance)
+
+
+@receiver(post_save, sender=InstitutionProfile)
+def assign_support_user_to_new_institution(sender, instance, created, **kwargs):
+    """New institutions automatically get the global support specialist."""
+    if not created or instance.support_user_id:
+        return
+    support_user = SupportConfig.get_support_user()
+    if support_user:
+        InstitutionProfile.objects.filter(pk=instance.pk).update(support_user=support_user)

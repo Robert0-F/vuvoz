@@ -30,6 +30,7 @@ from collection.models import (
     CollectionRequest,
     RequestMaterialLine,
     RequestWeightLimit,
+    Material,
     PriceList,
 )
 
@@ -37,8 +38,8 @@ User = get_user_model()
 
 # 2 companies
 COMPANIES = [
-    {'email': 'company1@test.com', 'name': 'ООО Макулатура-Сервис', 'password': 'test123'},
-    {'email': 'company2@test.com', 'name': 'Зелёный Вывоз', 'password': 'test123'},
+    {'email': 'company1@test.com', 'name': 'ООО Макулатура-Сервис'},
+    {'email': 'company2@test.com', 'name': 'Зелёный Вывоз'},
 ]
 
 # 20 organizations: schools, offices, stores, manufacturing (Russian names)
@@ -68,22 +69,40 @@ ORGANIZATIONS = [
     {'email': 'factory06@test.com', 'name': 'ООО «Бумажный двор»', 'type': 'manufacturing'},
 ]
 
-PASSWORD = 'test123'
-
-
 def run():
+    from scripts.dev_env import get_dev_test_password
+
+    password = get_dev_test_password()
     RequestWeightLimit.objects.get_or_create(
         pk=1,
         defaults={'min_kg': Decimal('100'), 'max_kg': Decimal('100000')},
     )
-    # Ensure we have prices for estimated_value
+    # Ensure we have materials and prices for estimated_value
     from django.utils import timezone
     today = timezone.now().date()
-    for mt in ['paper', 'cardboard', 'newspapers', 'mixed', 'archive']:
+    material_objs = {}
+    for code, name in [
+        ('paper', 'Бумага'),
+        ('cardboard', 'Картон'),
+        ('newspapers', 'Газеты'),
+        ('mixed', 'Смешанная макулатура'),
+        ('archive', 'Архивная бумага'),
+    ]:
+        material, _ = Material.objects.get_or_create(
+            code=code,
+            defaults={'name': name, 'is_active': True},
+        )
+        if not material.is_active:
+            material.is_active = True
+            material.save(update_fields=['is_active'])
+        material_objs[code] = material
         PriceList.objects.get_or_create(
-            material_type=mt,
-            valid_from=today,
-            defaults={'price_per_kg': Decimal('5'), 'is_active': True},
+            material=material,
+            defaults={
+                'price_per_kg': Decimal('5'),
+                'is_active': True,
+                'valid_from': today,
+            },
         )
 
     companies_profiles = []
@@ -93,7 +112,7 @@ def run():
             defaults={'email': c['email'], 'role': User.Role.COMPANY, 'is_active': True},
         )
         if created:
-            user.set_password(c['password'])
+            user.set_password(password)
             user.save()
             print(f"Создана компания: {c['email']}")
         profile, _ = CompanyProfile.objects.get_or_create(
@@ -118,7 +137,7 @@ def run():
             defaults={'email': org['email'], 'role': User.Role.INSTITUTION, 'is_active': True},
         )
         if u_created:
-            user.set_password(PASSWORD)
+            user.set_password(password)
             user.save()
         inst, i_created = InstitutionProfile.objects.get_or_create(
             user=user,
@@ -153,8 +172,8 @@ def run():
             paper_weight_kg=total_kg,
             comment=f'Новая заявка от {inst.institution_name}',
         )
-        RequestMaterialLine.objects.create(collection_request=req_new, material_type='paper', amount_kg=kg1)
-        RequestMaterialLine.objects.create(collection_request=req_new, material_type='cardboard', amount_kg=kg2)
+        RequestMaterialLine.objects.create(collection_request=req_new, material=material_objs['paper'], amount_kg=kg1)
+        RequestMaterialLine.objects.create(collection_request=req_new, material=material_objs['cardboard'], amount_kg=kg2)
         req_new.save()
         # Completed request (with actual_amount/actual_value)
         req_done = CollectionRequest.objects.create(
@@ -164,8 +183,8 @@ def run():
             paper_weight_kg=total_kg,
             comment=f'Завершённая заявка от {inst.institution_name}',
         )
-        RequestMaterialLine.objects.create(collection_request=req_done, material_type='paper', amount_kg=kg1)
-        RequestMaterialLine.objects.create(collection_request=req_done, material_type='cardboard', amount_kg=kg2)
+        RequestMaterialLine.objects.create(collection_request=req_done, material=material_objs['paper'], amount_kg=kg1)
+        RequestMaterialLine.objects.create(collection_request=req_done, material=material_objs['cardboard'], amount_kg=kg2)
         req_done.save()
         req_done.actual_amount = req_done.paper_weight_kg
         req_done.actual_value = req_done.estimated_value

@@ -1,14 +1,15 @@
+# Requires .env in project root (copy from .env.example). POSTGRES_PASSWORD must be set.
 services:
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: vuvoz
-      POSTGRES_USER: vuvoz
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vuvoz_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-vuvoz}
+      POSTGRES_USER: ${POSTGRES_USER:-vuvoz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U vuvoz']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-vuvoz}']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,9 +20,15 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: postgres://vuvoz:${POSTGRES_PASSWORD:-vuvoz_secret}@db:5432/vuvoz
+      DATABASE_URL: postgres://${POSTGRES_USER:-vuvoz}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vuvoz}
       DJANGO_DEBUG: "false"
-      # From .env in production (your domain); defaults for local Docker
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@vuvoz.local}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://nginx}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1,http://nginx}
@@ -31,7 +38,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn vuvoz.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports:
+      - "8025:8025"
 
   nginx:
     image: nginx:alpine

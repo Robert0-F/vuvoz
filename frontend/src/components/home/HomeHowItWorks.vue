@@ -1,6 +1,6 @@
 <template>
   <section ref="sectionRef" class="home-how" :class="{ 'hp-visible': visible }">
-    <div class="home-how__inner">
+    <div class="home-how__inner hp-container">
       <h2 class="hp-section-title home-how__title">Как это работает</h2>
       <p class="hp-subtitle home-how__subtitle">Четыре шага от заявки до оплаты и документов.</p>
 
@@ -30,7 +30,7 @@ const sectionRef = ref<HTMLElement | null>(null)
 const visible = ref(false)
 
 const steps = [
-  { title: 'Заявка', text: 'Оставьте заявку через сайт, личный кабинет или Telegram-бот — укажите тип и объём макулатуры.' },
+  { title: 'Заявка', text: 'Оформите заявку на вывоз на главной без регистрации или через личный кабинет — укажите сырьё и вес.' },
   { title: 'Расчёт', text: 'Мгновенный расчёт стоимости по актуальным тарифам. Прозрачно и без скрытых платежей.' },
   { title: 'Вывоз', text: 'Водитель приезжает в удобное время, взвешивает и забирает сырьё. Фотофиксация при необходимости.' },
   { title: 'Оплата и документы', text: 'Средства зачисляются, выдаём документы для отчётности и начисляем зелёные баллы.' },
@@ -48,6 +48,7 @@ onMounted(() => {
 <style scoped lang="scss">
 .home-how {
   padding: clamp(3rem, 8vw, 5rem) 1.5rem;
+  background: linear-gradient(180deg, #fff 0%, #f0fdfa 100%);
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.6s var(--vuvoz-ease), transform 0.6s var(--vuvoz-ease);

@@ -71,7 +71,8 @@ class TestInstitutionStats:
         assert 'total_requests' in resp.data
         assert 'requests_by_status' in resp.data
         assert 'total_weight_all_time' in resp.data
-        assert 'total_weight_this_month' in resp.data
+        assert 'total_weight_period' in resp.data
+        assert 'monthly_series' in resp.data
 
 
 @pytest.mark.django_db

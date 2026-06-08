@@ -118,6 +118,7 @@ const statusFilterItems = [
   { title: 'Все', value: 'all' },
   { title: 'Новые', value: 'new' },
   { title: 'Принятые', value: 'accepted' },
+  { title: 'Ожидают подтверждения', value: 'pending_confirmation' },
   { title: 'Завершённые', value: 'completed' },
 ]
 
@@ -159,12 +160,24 @@ function formatMaterial(item: CollectionRequest) {
 }
 
 function statusLabel(s: string) {
-  const m: Record<string, string> = { new: 'Новый', accepted: 'Принят', completed: 'Завершён' }
+  const m: Record<string, string> = {
+    new: 'Новый',
+    accepted: 'Принят',
+    pending_confirmation: 'Ожидает подтверждения',
+    completed: 'Завершён',
+    cancelled: 'Отменён',
+  }
   return m[s] || s
 }
 
 function statusColor(s: string) {
-  const m: Record<string, string> = { new: 'warning', accepted: 'info', completed: 'success' }
+  const m: Record<string, string> = {
+    new: 'warning',
+    accepted: 'info',
+    pending_confirmation: 'warning',
+    completed: 'success',
+    cancelled: 'grey',
+  }
   return m[s] || 'grey'
 }
 

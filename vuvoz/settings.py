@@ -2,13 +2,27 @@
 Django settings for vuvoz project.
 """
 import os
+from datetime import timedelta
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-change-in-production')
+# Load .env without overriding variables already set (e.g. systemd EnvironmentFile).
+load_dotenv(BASE_DIR / '.env', override=False)
+
+_INSECURE_SECRET_FALLBACK = 'django-insecure-change-in-production'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', _INSECURE_SECRET_FALLBACK)
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
+
+if not DEBUG:
+    if not SECRET_KEY or SECRET_KEY == _INSECURE_SECRET_FALLBACK:
+        raise ImproperlyConfigured(
+            'Set a unique DJANGO_SECRET_KEY in .env before running with DJANGO_DEBUG=False.'
+        )
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
@@ -107,6 +121,19 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',
+        'public_form': '30/hour',
+    },
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=int(os.environ.get('JWT_ACCESS_TOKEN_LIFETIME_MINUTES', '60'))
+    ),
+    'REFRESH_TOKEN_LIFETIME': timedelta(
+        days=int(os.environ.get('JWT_REFRESH_TOKEN_LIFETIME_DAYS', '7'))
+    ),
 }
 
 # CORS: allow Vue app (same origin in prod; dev may use different port)
@@ -128,12 +155,22 @@ CSRF_TRUSTED_ORIGINS = os.environ.get(
     'http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000'
 ).split(',')
 
-# Email: console backend for development
+# Email: SMTP in production, console backend for local development
 EMAIL_BACKEND = os.environ.get(
     'EMAIL_BACKEND',
     'django.core.mail.backends.console.EmailBackend'
 )
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@vuvoz.local')
+SERVER_EMAIL = os.environ.get('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False').lower() in ('true', '1', 'yes')
+
+# Audit logs retention in days (management command cleanup_audit_logs)
+AUDIT_LOG_RETENTION_DAYS = int(os.environ.get('AUDIT_LOG_RETENTION_DAYS', '180'))
 
 # Production security (when DEBUG=False)
 if not DEBUG:

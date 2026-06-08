@@ -32,6 +32,9 @@ export interface CompanyDashboardData {
   monthly_weights: MonthlyWeight[]
   material_breakdown: MaterialBreakdownItem[]
   requests_by_status: { new: number; accepted: number; completed: number }
+  selected_month?: string
+  month_start?: string
+  month_end?: string
 }
 
 export const useCompanyDashboardStore = defineStore('companyDashboard', () => {
@@ -42,6 +45,7 @@ export const useCompanyDashboardStore = defineStore('companyDashboard', () => {
   const loadingInstitutions = ref(false)
   const loadingDashboard = ref(false)
   const dashboardError = ref<string | null>(null)
+  const dashboardMonth = ref('')
 
   const newRequests = computed(() => requests.value.filter((r) => r.status === 'new'))
   const activeRequests = computed(() => requests.value.filter((r) => r.status === 'accepted'))
@@ -69,11 +73,20 @@ export const useCompanyDashboardStore = defineStore('companyDashboard', () => {
     }
   }
 
-  async function fetchDashboard() {
+  function defaultMonth() {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  async function fetchDashboard(month?: string) {
     loadingDashboard.value = true
     dashboardError.value = null
+    const m = month || dashboardMonth.value || defaultMonth()
+    dashboardMonth.value = m
     try {
-      const { data } = await api.get<CompanyDashboardData>('/stats/company/dashboard/')
+      const { data } = await api.get<CompanyDashboardData>('/stats/company/dashboard/', {
+        params: { month: m },
+      })
       dashboard.value = data
       return data
     } catch (e) {
@@ -116,5 +129,7 @@ export const useCompanyDashboardStore = defineStore('companyDashboard', () => {
     loadAll,
     refreshKpis,
     clearDashboardError,
+    dashboardMonth,
+    defaultMonth,
   }
 })

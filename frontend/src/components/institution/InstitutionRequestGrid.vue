@@ -86,9 +86,13 @@
             <span class="inst-request-card__label">Дата создания</span>
             <span class="inst-request-card__value">{{ formatDate(item.created_at) }}</span>
           </div>
-          <!-- Executor info for accepted/completed -->
-          <div v-if="item.status === 'accepted' || item.status === 'completed'" class="inst-request-card__executor">
-            <div class="inst-request-card__executor-title">Принято компанией: {{ item.receiving_company_name || '—' }}</div>
+          <!-- Executor info for accepted / pending confirmation / completed -->
+          <div v-if="item.status === 'accepted' || item.status === 'pending_confirmation' || item.status === 'completed'" class="inst-request-card__executor">
+            <div class="inst-request-card__executor-title">
+              <template v-if="item.status === 'accepted'">Заявка принята: {{ item.receiving_company_name || '—' }}</template>
+              <template v-else-if="item.status === 'pending_confirmation'">Подтвердите фактический вес вывоза</template>
+              <template v-else>Принято компанией: {{ item.receiving_company_name || '—' }}</template>
+            </div>
             <div v-if="item.receiving_company_phone" class="inst-request-card__executor-line">
               <v-icon icon="mdi-phone-outline" size="16" class="inst-request-card__executor-icon" />
               <a :href="`tel:${item.receiving_company_phone}`" class="inst-request-card__executor-link">{{ item.receiving_company_phone }}</a>
@@ -97,13 +101,26 @@
               <v-icon icon="mdi-email-outline" size="16" class="inst-request-card__executor-icon" />
               <a :href="`mailto:${item.receiving_company_email}`" class="inst-request-card__executor-link">{{ item.receiving_company_email }}</a>
             </div>
-            <div class="inst-request-card__executor-line">
+            <div v-if="item.status === 'accepted'" class="inst-request-card__executor-line">
               <v-icon icon="mdi-calendar" size="16" class="inst-request-card__executor-icon" />
-              <span>Планируемая дата вывоза: {{ plannedDateLabel(item) }}</span>
+              <span>Дата вывоза (компания): {{ companyPickupDateLabel(item) }}</span>
+            </div>
+            <div v-if="item.status === 'pending_confirmation'" class="inst-request-card__executor-line">
+              <v-icon icon="mdi-scale" size="16" class="inst-request-card__executor-icon" />
+              <span>Фактический вес: <strong>{{ item.actual_amount }} кг</strong></span>
             </div>
           </div>
         </div>
         <div class="inst-request-card__footer">
+          <button
+            v-if="item.status === 'pending_confirmation'"
+            type="button"
+            class="inst-request-card__confirm"
+            :disabled="confirmingId === item.id"
+            @click.stop="confirmCompletion(item)"
+          >
+            {{ confirmingId === item.id ? 'Подтверждение…' : 'Подтвердить вывоз' }}
+          </button>
           <button
             v-if="canCancel(item)"
             type="button"
@@ -215,9 +232,11 @@
               <span class="inst-quick-view__label">Комментарий</span>
               <span>{{ quickViewItem.comment }}</span>
             </div>
-            <!-- Executor info for accepted/completed -->
-            <div v-if="(quickViewItem.status === 'accepted' || quickViewItem.status === 'completed') && quickViewItem.receiving_company_name" class="inst-quick-view__executor">
-              <h4 class="inst-quick-view__executor-title">Информация об исполнителе</h4>
+            <!-- Executor info for accepted / pending / completed -->
+            <div v-if="['accepted', 'pending_confirmation', 'completed'].includes(quickViewItem.status) && quickViewItem.receiving_company_name" class="inst-quick-view__executor">
+              <h4 class="inst-quick-view__executor-title">
+                {{ quickViewItem.status === 'accepted' ? 'Заявка принята компанией' : 'Информация об исполнителе' }}
+              </h4>
               <div class="inst-quick-view__executor-row">
                 <span class="inst-quick-view__label">Компания</span>
                 <span>{{ quickViewItem.receiving_company_name }}</span>
@@ -230,13 +249,26 @@
                 <v-icon icon="mdi-email-outline" size="18" class="inst-quick-view__executor-icon" />
                 <a :href="`mailto:${quickViewItem.receiving_company_email}`" class="inst-quick-view__executor-link">{{ quickViewItem.receiving_company_email }}</a>
               </div>
-              <div class="inst-quick-view__executor-row">
+              <div v-if="quickViewItem.status === 'accepted'" class="inst-quick-view__executor-row">
                 <v-icon icon="mdi-calendar" size="18" class="inst-quick-view__executor-icon" />
-                <span>Планируемая дата: {{ quickViewItem.estimated_collection_date ? formatDate(quickViewItem.estimated_collection_date) : (quickViewItem.desired_date ? formatDate(quickViewItem.desired_date) : '—') }}</span>
+                <span>Дата вывоза (назначена компанией): {{ companyPickupDateLabel(quickViewItem) }}</span>
               </div>
-              <div v-if="quickViewItem.actual_collection_date" class="inst-quick-view__executor-row">
+              <div v-if="quickViewItem.status === 'pending_confirmation'" class="inst-quick-view__confirm-box">
+                <p>Компания указала фактический вес: <strong>{{ quickViewItem.actual_amount }} кг</strong></p>
+                <p v-if="quickViewItem.actual_value">Стоимость: <strong>{{ quickViewItem.actual_value }} руб.</strong></p>
+                <p class="inst-quick-view__confirm-hint">Подтвердите, что у вас вывезли именно этот вес.</p>
+                <button
+                  type="button"
+                  class="inst-quick-view__confirm-btn"
+                  :disabled="confirmingId === quickViewItem.id"
+                  @click="confirmCompletion(quickViewItem)"
+                >
+                  {{ confirmingId === quickViewItem.id ? 'Подтверждение…' : 'Подтвердить вывоз' }}
+                </button>
+              </div>
+              <div v-if="quickViewItem.status === 'completed' && quickViewItem.actual_collection_date" class="inst-quick-view__executor-row">
                 <v-icon icon="mdi-calendar-check" size="18" class="inst-quick-view__executor-icon" />
-                <span>Фактическая дата вывоза: {{ formatDate(quickViewItem.actual_collection_date) }}</span>
+                <span>Дата вывоза: {{ formatDate(quickViewItem.actual_collection_date) }}</span>
               </div>
             </div>
             <div v-if="canCancel(quickViewItem)" class="inst-quick-view__actions">
@@ -301,13 +333,18 @@ function formatDate(s: string) {
 }
 
 function statusLabel(s: string) {
-  const m: Record<string, string> = { new: 'Новый', accepted: 'Принят', completed: 'Завершён', cancelled: 'Отменён' }
+  const m: Record<string, string> = {
+    new: 'Новый',
+    accepted: 'Принят',
+    pending_confirmation: 'Подтвердите вывоз',
+    completed: 'Завершён',
+    cancelled: 'Отменён',
+  }
   return m[s] || s
 }
 
-function plannedDateLabel(item: CollectionRequest): string {
-  const d = item.actual_collection_date || item.estimated_collection_date || item.desired_date
-  return d ? formatDate(d) : 'не указана'
+function companyPickupDateLabel(item: CollectionRequest): string {
+  return item.actual_collection_date ? formatDate(item.actual_collection_date) : 'не назначена'
 }
 
 function canCancel(item: CollectionRequest) {
@@ -323,7 +360,7 @@ const filtered = computed(() => {
   if (ordersTab.value === 'new') {
     list = list.filter((r) => r.status === 'new')
   } else if (ordersTab.value === 'accepted') {
-    list = list.filter((r) => r.status === 'accepted')
+    list = list.filter((r) => r.status === 'accepted' || r.status === 'pending_confirmation')
   } else {
     list = list.filter((r) => r.status === 'completed' || r.status === 'cancelled')
   }
@@ -358,7 +395,21 @@ watch([ordersTab, dateFrom, dateTo, sortBy], () => {
 })
 
 const cancellingId = ref<number | null>(null)
+const confirmingId = ref<number | null>(null)
 const confirmCancelItem = ref<CollectionRequest | null>(null)
+
+async function confirmCompletion(item: CollectionRequest) {
+  confirmingId.value = item.id
+  try {
+    await api.post(`/collection-requests/${item.id}/confirm-completion/`)
+    quickViewItem.value = null
+    emit('cancelled')
+  } catch {
+    // could add toast
+  } finally {
+    confirmingId.value = null
+  }
+}
 
 async function cancelRequest(item: CollectionRequest) {
   confirmCancelItem.value = item
@@ -489,6 +540,7 @@ function closeCancelConfirm() {
   border-radius: 9999px;
   &--new { background: rgba(245, 158, 11, 0.15); color: #b45309; }
   &--accepted { background: rgba(14, 165, 233, 0.15); color: #0ea5e9; }
+  &--pending_confirmation { background: rgba(245, 158, 11, 0.18); color: #b45309; }
   &--completed { background: rgba(5, 150, 105, 0.15); color: #059669; }
   &--cancelled { background: rgba(107, 114, 128, 0.15); color: #6b7280; }
 }
@@ -570,6 +622,19 @@ function closeCancelConfirm() {
   font-size: 0.8rem;
   cursor: pointer;
   &:hover { border-color: #dc2626; color: #dc2626; }
+}
+
+.inst-request-card__confirm {
+  padding: 0.35rem 0.75rem;
+  border: none;
+  border-radius: var(--vuvoz-radius-sm);
+  background: var(--vuvoz-primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  &:hover:not(:disabled) { opacity: 0.92; }
+  &:disabled { opacity: 0.7; cursor: not-allowed; }
 }
 
 .inst-request-card__action {
@@ -689,6 +754,7 @@ function closeCancelConfirm() {
   font-weight: 600;
   &--new { color: #b45309; }
   &--accepted { color: #0ea5e9; }
+  &--pending_confirmation { color: #b45309; }
   &--completed { color: #059669; }
   &--cancelled { color: #6b7280; }
 }
@@ -778,5 +844,33 @@ function closeCancelConfirm() {
     color: var(--vuvoz-text);
     &:hover { background: var(--vuvoz-border); }
   }
+}
+
+.inst-quick-view__confirm-box {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border-radius: var(--vuvoz-radius-sm);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  p { margin: 0 0 0.5rem; font-size: 0.92rem; }
+}
+
+.inst-quick-view__confirm-hint {
+  color: var(--vuvoz-text-muted);
+  font-size: 0.85rem !important;
+}
+
+.inst-quick-view__confirm-btn {
+  margin-top: 0.35rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--vuvoz-radius-sm);
+  background: var(--vuvoz-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  &:hover:not(:disabled) { opacity: 0.92; }
+  &:disabled { opacity: 0.7; cursor: not-allowed; }
 }
 </style>

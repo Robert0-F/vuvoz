@@ -1,17 +1,39 @@
+import csv
+import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from io import StringIO
 
-from django.db.models import Avg, Case, Count, DurationField, ExpressionWrapper, F, Q, Sum, Value, When
+from django.http import HttpResponse
+from django.db import connection
+from django.contrib.auth import get_user_model
+from django.db.models import Avg, Case, Count, DurationField, ExpressionWrapper, F, Max, OuterRef, Q, Subquery, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncDate, TruncMonth, TruncWeek
 from django.utils import timezone as tz
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.views import APIView
 
+logger = logging.getLogger(__name__)
+User = get_user_model()
+
+
+class PublicFormCreateMixin:
+    """Anonymous public forms: skip SessionAuthentication to avoid CSRF 403 in browser."""
+
+    def get_authenticators(self):
+        if getattr(self, 'action', None) == 'create':
+            return []
+        return super().get_authenticators()
+
+
 from .models import (
+    AuditLog,
     BonusConfig,
     CollectionRequest,
     CompanyProfile,
@@ -20,13 +42,19 @@ from .models import (
     InstitutionRegistrationRequest,
     InAppNotification,
     Material,
+    PublicPickupRequest,
+    PublicPickupRequestLine,
+    CompanyRegistrationRequest,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
     PriceList,
     Product,
+    ProductCategory,
     RequestMaterialLine,
+    SupportConfig,
     RequestWeightLimit,
+    SupportChatMessage,
 )
 from .permissions import (
     CanViewRequest,
@@ -35,10 +63,12 @@ from .permissions import (
     IsCompanyUser,
     IsInstitutionAccess,
     IsInstitutionUser,
+    IsSupportUser,
     IsOwnCompany,
 )
 from .serializers import (
     AdminStatsSerializer,
+    AuditLogSerializer,
     BonusConfigSerializer,
     CalculatePreviewSerializer,
     CollectionRequestCompleteSerializer,
@@ -53,16 +83,31 @@ from .serializers import (
     InstitutionStatsSerializer,
     InstitutionUpdateSerializer,
     MaterialSerializer,
+    PublicMaterialSerializer,
+    PublicPickupRequestAdminSerializer,
+    PublicPickupRequestCreateSerializer,
     NewsArticleSerializer,
     NotificationSerializer,
     PointsOrderCreateSerializer,
     PointsOrderSerializer,
     PointsOrderStatusSerializer,
     PriceListSerializer,
+    ProductCategorySerializer,
+    ProductCategoryWriteSerializer,
     ProductSerializer,
+    PublicProductSerializer,
+    SupportAssignedInstitutionSerializer,
+    SupportChatMessageSerializer,
+    SupportConfigSerializer,
+    SupportUserCreateSerializer,
+    SupportUserListSerializer,
     InstitutionRegistrationRequestSerializer,
+    CompanyRegistrationRequestSerializer,
     UserBasicSerializer,
 )
+from .services.audit_service import write_audit_log
+from .services.email_service import send_platform_email
+from .throttles import PublicFormThrottle
 
 
 class HealthView(APIView):
@@ -73,7 +118,180 @@ class HealthView(APIView):
         return Response({'status': 'ok'})
 
 
+def _apply_audit_filters(qs, params):
+    category = (params.get('category') or '').strip()
+    if category:
+        qs = qs.filter(category=category)
+    action_type = (params.get('action_type') or '').strip()
+    if action_type:
+        qs = qs.filter(action_type=action_type)
+    actor_role = (params.get('actor_role') or '').strip()
+    if actor_role:
+        qs = qs.filter(actor_role=actor_role)
+    target_model = (params.get('target_model') or '').strip()
+    if target_model:
+        qs = qs.filter(target_model__icontains=target_model)
+    date_from = _parse_date_param(params.get('date_from'))
+    date_to = _parse_date_param(params.get('date_to'))
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    search = (params.get('search') or '').strip()
+    if search:
+        qs = qs.filter(
+            Q(short_summary__icontains=search)
+            | Q(action_type__icontains=search)
+            | Q(target_model__icontains=search)
+            | Q(target_id__icontains=search)
+            | Q(actor__username__icontains=search)
+        )
+    return qs
+
+
+class AdminAuditLogListView(APIView):
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        qs = AuditLog.objects.select_related('actor').all().order_by('-created_at')
+        qs = _apply_audit_filters(qs, request.query_params)
+        count = qs.count()
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = min(200, max(10, int(request.query_params.get('page_size', 25))))
+        except (TypeError, ValueError):
+            page_size = 25
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = qs[start:end]
+        data = AuditLogSerializer(items, many=True).data
+        return Response({
+            'count': count,
+            'page': page,
+            'page_size': page_size,
+            'results': data,
+        })
+
+
+class AdminAuditLogExportView(APIView):
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        export_format = (request.query_params.get('export_format') or 'csv').strip().lower()
+        qs = AuditLog.objects.select_related('actor').all().order_by('-created_at')
+        qs = _apply_audit_filters(qs, request.query_params)
+
+        if export_format == 'txt':
+            response = HttpResponse(content_type='text/plain; charset=utf-8')
+            response['Content-Disposition'] = 'attachment; filename=audit_logs.txt'
+            for item in qs:
+                response.write(
+                    f'[{item.created_at:%Y-%m-%d %H:%M:%S}] '
+                    f'[{item.category}] [{item.action_type}] '
+                    f'actor={item.actor.username if item.actor else "-"} '
+                    f'role={item.actor_role or "-"} '
+                    f'target={item.target_model}:{item.target_id} '
+                    f'summary="{item.short_summary}"\n'
+                )
+            return response
+
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'created_at', 'category', 'action_type', 'actor_username', 'actor_role',
+            'target_model', 'target_id', 'short_summary', 'ip_address',
+        ])
+        for item in qs:
+            writer.writerow([
+                item.created_at.isoformat(),
+                item.category,
+                item.action_type,
+                item.actor.username if item.actor else '',
+                item.actor_role,
+                item.target_model,
+                item.target_id,
+                item.short_summary,
+                item.ip_address,
+            ])
+        response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = 'attachment; filename=audit_logs.csv'
+        return response
+
+
+class AdminDatabaseInfoView(APIView):
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        db_settings = connection.settings_dict
+        engine = (db_settings.get('ENGINE') or '').lower()
+        if 'sqlite' in engine:
+            db_type = 'sqlite'
+        elif 'postgresql' in engine or 'postgis' in engine:
+            db_type = 'postgresql'
+        else:
+            db_type = 'other'
+        return Response({
+            'db_type': db_type,
+            'engine': str(db_settings.get('ENGINE', '') or ''),
+            'name': str(db_settings.get('NAME', '') or ''),
+            'host': str(db_settings.get('HOST', '') or ''),
+            'port': str(db_settings.get('PORT', '') or ''),
+        })
+
+
+class AuditLogMixin:
+    """Reusable CRUD audit logging for DRF viewsets."""
+
+    audit_target_model = ""
+
+    def _log_action(self, action_type, summary, category='info', target_id="", payload=None):
+        target_model = self.audit_target_model or self.get_queryset().model.__name__
+        write_audit_log(
+            request=getattr(self, 'request', None),
+            action_type=action_type,
+            short_summary=summary,
+            category=category,
+            target_model=target_model,
+            target_id=target_id,
+            payload=payload or {},
+        )
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        self._log_action(
+            action_type='create',
+            summary=f'Created {instance.__class__.__name__}',
+            target_id=getattr(instance, 'pk', ''),
+            payload={'view_action': self.action},
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        self._log_action(
+            action_type='update',
+            summary=f'Updated {instance.__class__.__name__}',
+            target_id=getattr(instance, 'pk', ''),
+            payload={'view_action': self.action},
+        )
+
+    def perform_destroy(self, instance):
+        target_id = getattr(instance, 'pk', '')
+        model_name = instance.__class__.__name__
+        super().perform_destroy(instance)
+        self._log_action(
+            action_type='delete',
+            summary=f'Deleted {model_name}',
+            category='warning',
+            target_id=target_id,
+            payload={'view_action': self.action},
+        )
+
+
 class CompanyProfileViewSet(
+    AuditLogMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     mixins.ListModelMixin,
@@ -102,7 +320,7 @@ class CompanyProfileViewSet(
         return CompanyProfileSerializer
 
 
-class InstitutionViewSet(viewsets.ModelViewSet):
+class InstitutionViewSet(AuditLogMixin, viewsets.ModelViewSet):
     """
     Company: CRUD for institutions where parent_company = user.company_profile.
     Institution: retrieve and update own institution only.
@@ -119,6 +337,8 @@ class InstitutionViewSet(viewsets.ModelViewSet):
             qs = InstitutionProfile.objects.filter(parent_company=user.company_profile)
         elif getattr(user, 'role', None) == 'institution' and hasattr(user, 'institution_profile'):
             qs = InstitutionProfile.objects.filter(user=user)
+        elif getattr(user, 'role', None) == 'support':
+            qs = InstitutionProfile.objects.filter(support_user=user)
         else:
             return InstitutionProfile.objects.none()
         search = self.request.query_params.get('search', '').strip()
@@ -162,24 +382,55 @@ class InstitutionViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(InstitutionProfileSerializer(instance).data)
         return Response(data, status=201, headers=headers)
 
+    def update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'support':
+            raise PermissionDenied('Техподдержка не может изменять профиль учреждения.')
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'support':
+            raise PermissionDenied('Техподдержка не может изменять профиль учреждения.')
+        instance = self.get_object()
+        prev_support_user_id = instance.support_user_id
+        response = super().partial_update(request, *args, **kwargs)
+        instance.refresh_from_db(fields=['support_user'])
+        if prev_support_user_id != instance.support_user_id and getattr(request.user, 'role', None) == 'admin':
+            write_audit_log(
+                request=request,
+                action_type='institution_support_assignment_update',
+                short_summary='Support user assigned to institution',
+                target_model='InstitutionProfile',
+                target_id=instance.id,
+                payload={
+                    'institution_id': instance.id,
+                    'previous_support_user_id': prev_support_user_id,
+                    'new_support_user_id': instance.support_user_id,
+                },
+            )
+        return response
+
     @action(detail=True, methods=['patch'], url_path='reset_password')
     def reset_password(self, request, pk=None):
         """Generate new password for institution user. Company only, own institutions."""
-        from django.core.mail import send_mail
-        from django.conf import settings
-
         institution = self.get_object()
         new_password = secrets.token_urlsafe(12)
         user = institution.user
         user.set_password(new_password)
         user.save(update_fields=['password'])
 
-        send_mail(
+        send_platform_email(
             subject='Password reset - Waste Paper Collection',
             message=f'Your new password: {new_password}\nPlease change it after first login.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
-            fail_silently=True,
+        )
+        write_audit_log(
+            request=request,
+            action_type='reset_password',
+            category='warning',
+            target_model='InstitutionProfile',
+            target_id=institution.pk,
+            short_summary='Institution password reset by company/admin',
+            payload={'institution_id': institution.pk, 'user_id': user.pk},
         )
 
         return Response({
@@ -188,7 +439,7 @@ class InstitutionViewSet(viewsets.ModelViewSet):
         })
 
 
-class CollectionRequestViewSet(viewsets.ModelViewSet):
+class CollectionRequestViewSet(AuditLogMixin, viewsets.ModelViewSet):
     """
     Create: institution users only; uses material_lines (multiple material types + weights).
     List/Retrieve: filtered by user role (company sees received, institution sees own).
@@ -242,6 +493,8 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
             perms.append(IsInstitutionUser)
         elif self.action == 'cancel':
             perms.extend([CanViewRequest, IsInstitutionUser])
+        elif self.action == 'confirm_completion':
+            perms.extend([CanViewRequest, IsInstitutionUser])
         else:
             perms.append(CanViewRequest)
         if self.action in ('update', 'partial_update', 'complete'):
@@ -269,6 +522,14 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
                 amount_kg=line['amount_kg'],
             )
         req.save()
+        write_audit_log(
+            request=request,
+            action_type='create',
+            target_model='CollectionRequest',
+            target_id=req.pk,
+            short_summary='Created collection request',
+            payload={'status': req.status, 'institution_id': institution.pk},
+        )
         return Response(
             CollectionRequestSerializer(req, context={'request': request}).data,
             status=201,
@@ -280,9 +541,12 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
         If actual_material_lines is provided (multiple materials), actual_amount and actual_value are computed from it.
         """
         req = self.get_object()
-        if req.status == CollectionRequest.Status.COMPLETED:
+        if req.status in (
+            CollectionRequest.Status.COMPLETED,
+            CollectionRequest.Status.PENDING_CONFIRMATION,
+        ):
             return Response(
-                {'detail': 'Заявка уже завершена.'},
+                {'detail': 'Заявка уже завершена или ожидает подтверждения учреждения.'},
                 status=400,
             )
         ser = CollectionRequestCompleteSerializer(data=request.data)
@@ -300,8 +564,47 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
             req.actual_amount = data['actual_amount']
         req.actual_collection_date = data.get('actual_collection_date')
         req.internal_notes = (data.get('internal_notes') or '').strip()
-        req.status = CollectionRequest.Status.COMPLETED
+        req.status = CollectionRequest.Status.PENDING_CONFIRMATION
         req.save()
+        write_audit_log(
+            request=request,
+            action_type='status_change',
+            target_model='CollectionRequest',
+            target_id=req.pk,
+            category='critical',
+            short_summary='Collection request sent for institution confirmation',
+            payload={'new_status': req.status, 'actual_amount': str(req.actual_amount or '')},
+        )
+        return Response(CollectionRequestSerializer(req, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='confirm-completion')
+    def confirm_completion(self, request, pk=None):
+        """Institution confirms actual weight after company completion."""
+        req = self.get_object()
+        if getattr(request.user, 'role', None) != 'institution':
+            return Response({'detail': 'Подтверждать вывоз может только учреждение.'}, status=403)
+        if not hasattr(request.user, 'institution_profile') or req.institution_id != request.user.institution_profile.pk:
+            return Response({'detail': 'Нет доступа к этой заявке.'}, status=403)
+        if req.status != CollectionRequest.Status.PENDING_CONFIRMATION:
+            return Response({'detail': 'Заявка не ожидает подтверждения.'}, status=400)
+        if req.actual_amount is None:
+            return Response({'detail': 'Компания ещё не указала фактический вес.'}, status=400)
+
+        from django.utils import timezone
+
+        req.status = CollectionRequest.Status.COMPLETED
+        if not req.completed_at:
+            req.completed_at = timezone.now()
+        req.save()
+        write_audit_log(
+            request=request,
+            action_type='status_change',
+            target_model='CollectionRequest',
+            target_id=req.pk,
+            category='critical',
+            short_summary='Institution confirmed collection completion',
+            payload={'new_status': req.status, 'actual_amount': str(req.actual_amount or '')},
+        )
         return Response(CollectionRequestSerializer(req, context={'request': request}).data)
 
     @action(detail=True, methods=['post'], url_path='cancel')
@@ -318,8 +621,22 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
                 {'detail': 'Заявка уже отменена.'},
                 status=400,
             )
+        if req.status == CollectionRequest.Status.PENDING_CONFIRMATION:
+            return Response(
+                {'detail': 'Нельзя отменить заявку, ожидающую подтверждения вывоза.'},
+                status=400,
+            )
         req.status = CollectionRequest.Status.CANCELLED
         req.save()
+        write_audit_log(
+            request=request,
+            action_type='status_change',
+            target_model='CollectionRequest',
+            target_id=req.pk,
+            category='warning',
+            short_summary='Collection request cancelled',
+            payload={'new_status': req.status},
+        )
         return Response(CollectionRequestSerializer(req, context={'request': request}).data)
 
     @action(detail=False, methods=['post'], url_path='calculate')
@@ -351,7 +668,7 @@ class CollectionRequestViewSet(viewsets.ModelViewSet):
         })
 
 
-class NewsArticleViewSet(viewsets.ModelViewSet):
+class NewsArticleViewSet(AuditLogMixin, viewsets.ModelViewSet):
     """News articles. Public: GET list/retrieve (published only). Admin: full CRUD."""
 
     serializer_class = NewsArticleSerializer
@@ -371,18 +688,27 @@ class NewsArticleViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated(), IsAdministrator()]
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        instance = serializer.save(author=self.request.user)
+        write_audit_log(
+            request=self.request,
+            action_type='create',
+            target_model='NewsArticle',
+            target_id=instance.pk,
+            short_summary='News article created',
+            payload={'is_published': instance.is_published},
+        )
 
 
-class MaterialViewSet(viewsets.ModelViewSet):
+class MaterialViewSet(AuditLogMixin, viewsets.ModelViewSet):
     """CRUD for Material (admin). Used for extensible material types."""
     serializer_class = MaterialSerializer
     queryset = Material.objects.all()
     filterset_fields = ['is_active']
     permission_classes = [IsAuthenticated, IsAdministrator]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
-class PriceListViewSet(viewsets.ModelViewSet):
+class PriceListViewSet(AuditLogMixin, viewsets.ModelViewSet):
     """CRUD for PriceList. Admin only. GET /current/ — current prices (any authenticated)."""
     serializer_class = PriceListSerializer
     queryset = PriceList.objects.all().select_related('material')
@@ -439,6 +765,7 @@ class BonusConfigView(APIView):
 
 
 class InstitutionBonusViewSet(
+    AuditLogMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -474,6 +801,14 @@ class InstitutionBonusViewSet(
                     bonus_balance=F('bonus_balance') + amount
                 )
             instance.save(update_fields=['confirmed_at', 'confirmed_by'])
+        write_audit_log(
+            request=self.request,
+            action_type='update',
+            target_model='InstitutionBonus',
+            target_id=instance.pk,
+            short_summary='Institution bonus updated',
+            payload={'status': instance.status, 'awarded_amount': str(instance.awarded_amount or '')},
+        )
 
 
 class CurrentUserView(APIView):
@@ -488,9 +823,191 @@ class CurrentUserView(APIView):
             data['profile'] = CompanyProfileSerializer(user.company_profile).data
         elif getattr(user, 'role', None) == 'institution' and hasattr(user, 'institution_profile'):
             data['profile'] = InstitutionProfileSerializer(user.institution_profile).data
+        elif getattr(user, 'role', None) == 'support':
+            institutions = InstitutionProfile.objects.filter(support_user=user).order_by('institution_name')
+            data['profile'] = {
+                'institutions': SupportAssignedInstitutionSerializer(institutions, many=True).data
+            }
         else:
             data['profile'] = None
         return Response(data)
+
+
+def _get_chat_institution_for_user(user, institution_id: int):
+    try:
+        institution = InstitutionProfile.objects.select_related('support_user').get(pk=institution_id)
+    except InstitutionProfile.DoesNotExist as exc:
+        raise PermissionDenied('Учреждение не найдено.') from exc
+
+    role = getattr(user, 'role', None)
+    if role == 'admin':
+        return institution
+    if role == 'institution' and hasattr(user, 'institution_profile') and user.institution_profile.pk == institution.id:
+        return institution
+    if role == 'support' and institution.support_user_id == user.id:
+        return institution
+    raise PermissionDenied('Нет доступа к чату этого учреждения.')
+
+
+class SupportConfigView(APIView):
+    """GET/PATCH global support specialist. Admin only. PATCH assigns user to all institutions."""
+
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def _get_config(self):
+        config = SupportConfig.objects.select_related('support_user').first()
+        if not config:
+            config = SupportConfig.objects.create()
+        return config
+
+    def get(self, request):
+        return Response(SupportConfigSerializer(self._get_config()).data)
+
+    def patch(self, request):
+        config = self._get_config()
+        serializer = SupportConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        config = serializer.save()
+        if config.support_user_id:
+            assigned = config.assign_to_all_institutions()
+            write_audit_log(
+                request=request,
+                action_type='support_config_update',
+                short_summary='Support specialist assigned to all institutions',
+                target_model='SupportConfig',
+                target_id=config.pk,
+                payload={'support_user_id': config.support_user_id, 'institutions_assigned': assigned},
+            )
+        return Response(SupportConfigSerializer(config).data)
+
+
+class SupportUserListCreateView(APIView):
+    """Admin: list or create the single support account."""
+
+    permission_classes = [IsAuthenticated, IsAdministrator]
+
+    def get(self, request):
+        users = User.objects.filter(role=User.Role.SUPPORT).order_by('username')
+        return Response(SupportUserListSerializer(users, many=True).data)
+
+    def post(self, request):
+        serializer = SupportUserCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        write_audit_log(
+            request=request,
+            action_type='support_user_create',
+            short_summary='Support user created',
+            target_model='CustomUser',
+            target_id=user.pk,
+            payload={'email': user.email},
+        )
+        return Response(SupportUserListSerializer(user).data, status=201)
+
+
+class SupportAssignedInstitutionsView(APIView):
+    """Support: list own assigned institutions with unread counts."""
+
+    permission_classes = [IsAuthenticated, IsSupportUser]
+
+    def get(self, request):
+        last_msg = SupportChatMessage.objects.filter(
+            institution=OuterRef('pk'),
+        ).order_by('-created_at')
+        qs = (
+            InstitutionProfile.objects.filter(support_user=request.user)
+            .annotate(
+                unread_count=Count(
+                    'support_chat_messages',
+                    filter=Q(
+                        support_chat_messages__is_read=False,
+                        support_chat_messages__sender__role=User.Role.INSTITUTION,
+                    ),
+                ),
+                last_message_at=Subquery(last_msg.values('created_at')[:1]),
+                last_message_preview=Subquery(last_msg.values('message')[:1]),
+            )
+            .order_by('-last_message_at', 'institution_name')
+        )
+        return Response(SupportAssignedInstitutionSerializer(qs, many=True).data)
+
+
+class SupportChatMessageView(APIView):
+    """Institution<->support text chat. Admin can inspect any institution chat."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, institution_id: int):
+        institution = _get_chat_institution_for_user(request.user, institution_id)
+        try:
+            limit = min(int(request.query_params.get('limit', 100)), 200)
+        except (TypeError, ValueError):
+            limit = 100
+        before_id = request.query_params.get('before_id')
+        qs = SupportChatMessage.objects.filter(institution=institution).select_related('sender')
+        if before_id:
+            try:
+                qs = qs.filter(id__lt=int(before_id))
+            except (TypeError, ValueError):
+                pass
+        messages = list(qs.order_by('-created_at')[:limit])
+        messages.reverse()
+        serializer = SupportChatMessageSerializer(
+            messages, many=True, context={'request': request},
+        )
+        return Response(serializer.data)
+
+    def post(self, request, institution_id: int):
+        institution = _get_chat_institution_for_user(request.user, institution_id)
+        message = str(request.data.get('message', '')).strip()
+        if not message:
+            return Response({'message': ['Сообщение не может быть пустым.']}, status=400)
+        if len(message) > 4000:
+            return Response({'message': ['Сообщение слишком длинное (максимум 4000 символов).']}, status=400)
+
+        msg = SupportChatMessage.objects.create(
+            institution=institution,
+            sender=request.user,
+            message=message,
+            is_read=False,
+        )
+        write_audit_log(
+            request=request,
+            action_type='support_chat_message_create',
+            short_summary='Support chat message sent',
+            target_model='SupportChatMessage',
+            target_id=msg.pk,
+            payload={'institution_id': institution.id, 'sender_role': getattr(request.user, 'role', '')},
+        )
+        return Response(
+            SupportChatMessageSerializer(msg, context={'request': request}).data,
+            status=201,
+        )
+
+
+class SupportChatMarkReadView(APIView):
+    """Mark incoming messages as read for current user in institution chat."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, institution_id: int):
+        institution = _get_chat_institution_for_user(request.user, institution_id)
+        role = getattr(request.user, 'role', None)
+        if role not in ('support', 'institution'):
+            return Response({'detail': 'Только учреждение и техподдержка могут отмечать сообщения прочитанными.'}, status=403)
+
+        unread_qs = SupportChatMessage.objects.filter(institution=institution, is_read=False).exclude(sender=request.user)
+        updated = unread_qs.update(is_read=True)
+        if updated:
+            write_audit_log(
+                request=request,
+                action_type='support_chat_mark_read',
+                short_summary='Support chat messages marked as read',
+                target_model='InstitutionProfile',
+                target_id=institution.id,
+                payload={'updated': updated, 'actor_role': role},
+            )
+        return Response({'updated': updated})
 
 
 class InstitutionPointsView(APIView):
@@ -529,7 +1046,41 @@ class InstitutionPointsView(APIView):
         })
 
 
+class ProductCategoryViewSet(
+    AuditLogMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Product categories for bonus shop. Admin: CRUD. Others: list active."""
+
+    queryset = ProductCategory.objects.all()
+    serializer_class = ProductCategorySerializer
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), IsAdministrator()]
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return ProductCategoryWriteSerializer
+        return ProductCategorySerializer
+
+    def get_queryset(self):
+        qs = ProductCategory.objects.annotate(
+            product_count=Count('products', filter=Q(products__is_active=True)),
+        )
+        if getattr(self.request.user, 'role', None) != 'admin':
+            qs = qs.filter(is_active=True)
+        return qs.order_by('sort_order', 'name')
+
+
 class ProductViewSet(
+    AuditLogMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -541,6 +1092,7 @@ class ProductViewSet(
 
     serializer_class = ProductSerializer
     queryset = Product.objects.all()
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def get_permissions(self):
         if self.action in ('create', 'update', 'partial_update', 'destroy'):
@@ -548,13 +1100,21 @@ class ProductViewSet(
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        qs = Product.objects.all()
+        qs = Product.objects.select_related('category')
         if getattr(self.request.user, 'role', None) != 'admin':
             qs = qs.filter(is_active=True)
-        return qs.order_by('name')
+        category = self.request.query_params.get('category')
+        if category:
+            if category.isdigit():
+                qs = qs.filter(category_id=int(category))
+            else:
+                qs = qs.filter(category__slug=category)
+        return qs.order_by('category__sort_order', 'name')
 
 
 class InstitutionRegistrationRequestViewSet(
+    PublicFormCreateMixin,
+    AuditLogMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     viewsets.GenericViewSet,
@@ -564,6 +1124,8 @@ class InstitutionRegistrationRequestViewSet(
     serializer_class = InstitutionRegistrationRequestSerializer
     queryset = InstitutionRegistrationRequest.objects.all()
 
+    throttle_classes = [PublicFormThrottle]
+
     def get_permissions(self):
         if self.action == 'create':
             return [AllowAny()]
@@ -572,8 +1134,74 @@ class InstitutionRegistrationRequestViewSet(
     def get_queryset(self):
         return InstitutionRegistrationRequest.objects.all().order_by('-created_at')
 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        send_platform_email(
+            subject='Заявка на регистрацию принята',
+            message=(
+                'Здравствуйте!\n\n'
+                'Спасибо за заявку на подключение к платформе «Зелёный счёт».\n'
+                'Мы приняли вашу заявку и свяжемся с вами после проверки.\n\n'
+                'С уважением,\nКоманда «Зелёный счёт»'
+            ),
+            recipient_list=[instance.email],
+        )
+        write_audit_log(
+            request=getattr(self, 'request', None),
+            action_type='create',
+            target_model='InstitutionRegistrationRequest',
+            target_id=instance.pk,
+            short_summary='Registration request submitted',
+            payload={'institution_name': instance.institution_name, 'email': instance.email},
+        )
+
+
+class CompanyRegistrationRequestViewSet(
+    PublicFormCreateMixin,
+    AuditLogMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Public: POST company registration. Admin: list."""
+
+    serializer_class = CompanyRegistrationRequestSerializer
+    queryset = CompanyRegistrationRequest.objects.all()
+    throttle_classes = [PublicFormThrottle]
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsAdministrator()]
+
+    def get_queryset(self):
+        return CompanyRegistrationRequest.objects.all().order_by('-created_at')
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        if instance.email:
+            send_platform_email(
+                subject='Заявка на регистрацию компании принята',
+                message=(
+                    'Здравствуйте!\n\n'
+                    'Спасибо за заявку на подключение к платформе «Зелёный счёт».\n'
+                    'Мы приняли вашу заявку и свяжемся с вами после проверки.\n\n'
+                    'С уважением,\nКоманда «Зелёный счёт»'
+                ),
+                recipient_list=[instance.email],
+            )
+        write_audit_log(
+            request=getattr(self, 'request', None),
+            action_type='create',
+            target_model='CompanyRegistrationRequest',
+            target_id=instance.pk,
+            short_summary='Company registration request submitted',
+            payload={'company_name': instance.company_name, 'email': instance.email},
+        )
+
 
 class PointsOrderViewSet(
+    AuditLogMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
@@ -602,13 +1230,19 @@ class PointsOrderViewSet(
 
     def perform_update(self, serializer):
         if getattr(self.request.user, 'role', None) != 'admin':
-            from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Только администратор может менять статус заказа.')
-        serializer.save()
+        instance = serializer.save()
+        write_audit_log(
+            request=self.request,
+            action_type='status_change',
+            target_model='PointsOrder',
+            target_id=instance.pk,
+            short_summary='Points order status changed by admin',
+            payload={'new_status': instance.status},
+        )
 
     def create(self, request, *args, **kwargs):
         if getattr(request.user, 'role', None) != 'institution':
-            from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Только организация может оформлять заказы на баллы.')
         inst = request.user.institution_profile
         serializer = self.get_serializer(data=request.data)
@@ -650,6 +1284,14 @@ class PointsOrderViewSet(
                     price_at_order=ld['price_at_order'],
                 )
             InstitutionProfile.objects.filter(pk=inst.pk).update(bonus_balance=F('bonus_balance') - total)
+        write_audit_log(
+            request=request,
+            action_type='create',
+            target_model='PointsOrder',
+            target_id=order.pk,
+            short_summary='Created points order',
+            payload={'institution_id': inst.pk, 'total_points': str(total)},
+        )
         return Response(
             PointsOrderSerializer(order).data,
             status=201,
@@ -800,7 +1442,23 @@ class CompanyDashboardView(APIView):
 
         company_profile = request.user.company_profile
         now = tz.now().date()
-        cur_month_start = now.replace(day=1)
+        month_param = request.query_params.get('month')
+        if month_param:
+            try:
+                y, m = map(int, month_param.split('-'))
+                cur_month_start = date(y, m, 1)
+                if m == 12:
+                    cur_month_end = date(y + 1, 1, 1) - timedelta(days=1)
+                else:
+                    cur_month_end = date(y, m + 1, 1) - timedelta(days=1)
+                if cur_month_end > now:
+                    cur_month_end = now
+            except (ValueError, TypeError):
+                cur_month_start = now.replace(day=1)
+                cur_month_end = now
+        else:
+            cur_month_start = now.replace(day=1)
+            cur_month_end = now
 
         requests_base = CollectionRequest.objects.filter(
             receiving_company=company_profile
@@ -816,7 +1474,7 @@ class CompanyDashboardView(APIView):
             status=CollectionRequest.Status.COMPLETED,
             completed_at__isnull=False,
             completed_at__date__gte=cur_month_start,
-            completed_at__date__lte=now,
+            completed_at__date__lte=cur_month_end,
         )
         completed_this_month = completed_this_month_qs.count()
         weight_result = completed_this_month_qs.aggregate(
@@ -897,6 +1555,9 @@ class CompanyDashboardView(APIView):
             'monthly_weights': monthly_weights,
             'material_breakdown': material_breakdown,
             'requests_by_status': requests_by_status,
+            'selected_month': cur_month_start.strftime('%Y-%m'),
+            'month_start': cur_month_start.isoformat(),
+            'month_end': cur_month_end.isoformat(),
         }
         from .serializers import CompanyDashboardSerializer
         serializer = CompanyDashboardSerializer(instance=data)
@@ -947,32 +1608,171 @@ class InstitutionStatsView(APIView):
             institution=institution_profile
         ).select_related('institution', 'receiving_company')
 
+        from django.db.models.functions import Coalesce
+
+        month_param = request.query_params.get('month')
+        if month_param and not start_date and not end_date:
+            try:
+                y, m = map(int, month_param.split('-'))
+                start_date = date(y, m, 1)
+                if m == 12:
+                    end_date = date(y + 1, 1, 1) - timedelta(days=1)
+                else:
+                    end_date = date(y, m + 1, 1) - timedelta(days=1)
+            except (ValueError, TypeError):
+                pass
+        if not start_date and not end_date:
+            now = tz.now().date()
+            start_date = now.replace(day=1)
+            end_date = now
+
+        if start_date and not end_date:
+            end_date = tz.now().date()
+        if end_date and not start_date:
+            start_date = end_date.replace(day=1)
+
         requests_filtered = _apply_date_filter(requests_all, start_date, end_date)
-
-        # total_requests (date-filtered)
         total_requests = requests_filtered.count()
-
-        # requests_by_status (date-filtered)
         requests_by_status = _requests_by_status_aggregate(requests_filtered)
 
-        # total_weight_all_time: sum over all their requests (no date filter)
-        total_weight_all_time = requests_all.aggregate(total=Sum('paper_weight_kg'))
+        completed_period = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED,
+        )
+        completed_count = completed_period.count()
+
+        weight_period = completed_period.aggregate(
+            total=Sum(Coalesce(F('actual_amount'), F('paper_weight_kg'), Value(Decimal('0'))))
+        )
+        total_weight_period = weight_period['total'] or Decimal('0.00')
+
+        earnings_period = completed_period.aggregate(
+            total=Sum(Coalesce(F('actual_value'), F('estimated_value'), Value(Decimal('0'))))
+        )
+        total_earnings_period = earnings_period['total'] or Decimal('0.00')
+
+        total_weight_all_time = requests_all.filter(
+            status=CollectionRequest.Status.COMPLETED,
+        ).aggregate(
+            total=Sum(Coalesce(F('actual_amount'), F('paper_weight_kg'), Value(Decimal('0'))))
+        )
         total_weight_all_time = total_weight_all_time['total'] or Decimal('0.00')
 
-        # total_weight_this_month: sum for current month
-        now = tz.now()
-        this_month_qs = requests_all.filter(
-            created_at__year=now.year,
-            created_at__month=now.month,
+        material_breakdown = []
+        from .models import RequestMaterialLine
+        line_agg = (
+            RequestMaterialLine.objects.filter(
+                collection_request__institution=institution_profile,
+                collection_request__status=CollectionRequest.Status.COMPLETED,
+                collection_request__completed_at__isnull=False,
+                collection_request__completed_at__date__gte=start_date,
+                collection_request__completed_at__date__lte=end_date,
+            )
+            .values('material__code', 'material__name')
+            .annotate(weight_kg=Sum('amount_kg'))
         )
-        total_weight_this_month = this_month_qs.aggregate(total=Sum('paper_weight_kg'))
-        total_weight_this_month = total_weight_this_month['total'] or Decimal('0.00')
+        for row in line_agg:
+            material_breakdown.append({
+                'material_code': row['material__code'] or 'other',
+                'material_name': row['material__name'] or row['material__code'],
+                'weight_kg': float(row['weight_kg'] or 0),
+            })
+
+        cancelled_count = requests_filtered.filter(
+            status=CollectionRequest.Status.CANCELLED,
+        ).count()
+        requests_by_status['cancelled'] = cancelled_count
+
+        completion_rate_percent = (
+            round(100 * completed_count / total_requests, 1) if total_requests else 0
+        )
+        avg_weight_per_request = (
+            round(float(total_weight_period) / completed_count, 1) if completed_count else 0
+        )
+
+        bonus_balance = institution_profile.bonus_balance or Decimal('0')
+        bonus_points_period = InstitutionBonus.objects.filter(
+            institution=institution_profile,
+            status=InstitutionBonus.Status.CONFIRMED,
+            confirmed_at__date__gte=start_date,
+            confirmed_at__date__lte=end_date,
+        ).aggregate(
+            total=Sum(Coalesce(F('awarded_amount'), F('calculated_amount'), Value(Decimal('0'))))
+        )['total'] or Decimal('0')
+
+        points_spent_period = PointsOrder.objects.filter(
+            institution=institution_profile,
+            created_at__date__gte=start_date,
+            created_at__date__lte=end_date,
+        ).aggregate(total=Sum('total_points'))['total'] or Decimal('0')
+
+        period_days = (end_date - start_date).days + 1 if start_date and end_date else 30
+        prev_end = start_date - timedelta(days=1) if start_date else tz.now().date()
+        prev_start = prev_end - timedelta(days=period_days - 1)
+        prev_filtered = _apply_date_filter(requests_all, prev_start, prev_end)
+        prev_completed = prev_filtered.filter(status=CollectionRequest.Status.COMPLETED)
+        prev_weight = prev_completed.aggregate(
+            total=Sum(Coalesce(F('actual_amount'), F('paper_weight_kg'), Value(Decimal('0'))))
+        )['total'] or Decimal('0')
+        prev_earnings = prev_completed.aggregate(
+            total=Sum(Coalesce(F('actual_value'), F('estimated_value'), Value(Decimal('0'))))
+        )['total'] or Decimal('0')
+
+        monthly_series = []
+        anchor = end_date or tz.now().date()
+        for offset in range(5, -1, -1):
+            m_date = anchor.replace(day=1)
+            for _ in range(offset):
+                m_date = (m_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+            y, m = m_date.year, m_date.month
+            m_start = date(y, m, 1)
+            m_end = (
+                date(y + 1, 1, 1) - timedelta(days=1) if m == 12
+                else date(y, m + 1, 1) - timedelta(days=1)
+            )
+            m_completed = requests_all.filter(
+                status=CollectionRequest.Status.COMPLETED,
+                completed_at__date__gte=m_start,
+                completed_at__date__lte=m_end,
+            )
+            m_weight = m_completed.aggregate(
+                total=Sum(Coalesce(F('actual_amount'), F('paper_weight_kg'), Value(Decimal('0'))))
+            )['total'] or Decimal('0')
+            m_earnings = m_completed.aggregate(
+                total=Sum(Coalesce(F('actual_value'), F('estimated_value'), Value(Decimal('0'))))
+            )['total'] or Decimal('0')
+            m_requests = requests_all.filter(
+                created_at__date__gte=m_start,
+                created_at__date__lte=m_end,
+            ).count()
+            monthly_series.append({
+                'period_label': m_start.strftime('%m.%Y'),
+                'requests_count': m_requests,
+                'weight_kg': float(m_weight),
+                'earnings_rub': float(m_earnings),
+            })
 
         data = {
             'total_requests': total_requests,
+            'completed_count': completed_count,
+            'cancelled_count': cancelled_count,
+            'completion_rate_percent': completion_rate_percent,
             'requests_by_status': requests_by_status,
             'total_weight_all_time': total_weight_all_time,
-            'total_weight_this_month': total_weight_this_month,
+            'total_weight_period': total_weight_period,
+            'total_earnings_period': total_earnings_period,
+            'avg_weight_per_request': avg_weight_per_request,
+            'bonus_balance': bonus_balance,
+            'bonus_points_period': bonus_points_period,
+            'points_spent_period': points_spent_period,
+            'period_start': start_date,
+            'period_end': end_date,
+            'material_breakdown': material_breakdown,
+            'monthly_series': monthly_series,
+            'previous_period': {
+                'total_requests': prev_filtered.count(),
+                'total_weight_kg': float(prev_weight),
+                'total_earnings_rub': float(prev_earnings),
+            },
         }
         serializer = InstitutionStatsSerializer(instance=data)
         return Response(serializer.data)
@@ -1142,6 +1942,7 @@ class AdminAnalyticsView(APIView):
         date_field = 'completed_at' if basis == 'completed' else 'created_at'
 
         company_id = request.query_params.get('company_id', '').strip()
+        institution_id = request.query_params.get('institution_id', '').strip()
         institution_type_filter = request.query_params.get('institution_type', '').strip()
         material_type_filter = request.query_params.get('material_type', '').strip()  # material code
 
@@ -1151,6 +1952,11 @@ class AdminAnalyticsView(APIView):
         if company_id:
             try:
                 requests_base = requests_base.filter(receiving_company_id=int(company_id))
+            except ValueError:
+                pass
+        if institution_id:
+            try:
+                requests_base = requests_base.filter(institution_id=int(institution_id))
             except ValueError:
                 pass
         if institution_type_filter:
@@ -1169,9 +1975,39 @@ class AdminAnalyticsView(APIView):
         material_choices = dict(Material.objects.values_list('code', 'name'))
         now = tz.now().date()
 
+        filter_company_name = None
+        filter_institution_name = None
+        if company_id:
+            try:
+                filter_company_name = CompanyProfile.objects.filter(
+                    pk=int(company_id)
+                ).values_list('company_name', flat=True).first()
+            except ValueError:
+                pass
+        if institution_id:
+            try:
+                filter_institution_name = InstitutionProfile.objects.filter(
+                    pk=int(institution_id)
+                ).values_list('institution_name', flat=True).first()
+            except ValueError:
+                pass
+
         # --- KPIs ---
-        total_companies = CompanyProfile.objects.count()
-        total_institutions = InstitutionProfile.objects.count()
+        company_id_int = int(company_id) if company_id.isdigit() else None
+        institution_id_int = int(institution_id) if institution_id.isdigit() else None
+        is_entity_filtered = bool(company_id_int or institution_id_int)
+
+        if institution_id_int:
+            total_companies = 1
+            total_institutions = 1
+        elif company_id_int:
+            total_companies = 1
+            total_institutions = InstitutionProfile.objects.filter(
+                parent_company_id=company_id_int
+            ).count()
+        else:
+            total_companies = CompanyProfile.objects.count()
+            total_institutions = InstitutionProfile.objects.count()
         all_requests = CollectionRequest.objects.all()
         total_requests_all_time = all_requests.count()
         total_requests_this_month = all_requests.filter(
@@ -1214,9 +2050,20 @@ class AdminAnalyticsView(APIView):
             if weight_prev else 0
         )
 
+        completed_period = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED
+        ).count()
+        completion_rate_period = (
+            round(100 * completed_period / request_count_period, 1)
+            if request_count_period else 0
+        )
+
         kpis = {
+            'is_entity_filtered': is_entity_filtered,
             'total_companies': total_companies,
             'total_institutions': total_institutions,
+            'total_companies_global': CompanyProfile.objects.count(),
+            'total_institutions_global': InstitutionProfile.objects.count(),
             'total_requests_all_time': total_requests_all_time,
             'total_requests_this_month': total_requests_this_month,
             'total_requests_this_year': total_requests_this_year,
@@ -1228,6 +2075,7 @@ class AdminAnalyticsView(APIView):
             'total_estimated_value': float(total_estimated_value),
             'total_actual_value': float(total_actual_value),
             'weight_trend_percent': round(weight_trend, 1),
+            'completion_rate_period': completion_rate_period,
         }
 
         # --- Materials ---
@@ -1425,6 +2273,207 @@ class AdminAnalyticsView(APIView):
             if avg_seconds is not None and getattr(avg_seconds, 'total_seconds', None):
                 avg_completion_hours = round(avg_seconds.total_seconds() / 3600, 1)
 
+        # --- Requests insights (funnel, backlog, urgency, SLA) ---
+        funnel_total = request_count_period or 1
+        funnel_steps = []
+        for step_key, step_label in (
+            ('new', 'Новые'),
+            ('accepted', 'Принятые'),
+            ('completed', 'Завершённые'),
+            ('cancelled', 'Отменённые'),
+        ):
+            count = status_agg.get(step_key) or 0
+            funnel_steps.append({
+                'status': step_key,
+                'label': step_label,
+                'count': count,
+                'percent': round(100 * count / funnel_total, 1) if funnel_total else 0,
+            })
+
+        backlog_qs = CollectionRequest.objects.filter(
+            status__in=(
+                CollectionRequest.Status.NEW,
+                CollectionRequest.Status.ACCEPTED,
+            ),
+        )
+        if company_id_int:
+            backlog_qs = backlog_qs.filter(receiving_company_id=company_id_int)
+        if institution_id_int:
+            backlog_qs = backlog_qs.filter(institution_id=institution_id_int)
+        if institution_type_filter:
+            backlog_qs = backlog_qs.filter(
+                institution__institution_type__icontains=institution_type_filter
+            )
+        backlog_agg = backlog_qs.aggregate(
+            new=Count(Case(When(status=CollectionRequest.Status.NEW, then=1))),
+            accepted=Count(Case(When(status=CollectionRequest.Status.ACCEPTED, then=1))),
+        )
+        backlog = {
+            'new': backlog_agg['new'] or 0,
+            'accepted': backlog_agg['accepted'] or 0,
+            'total': (backlog_agg['new'] or 0) + (backlog_agg['accepted'] or 0),
+        }
+
+        urgency_labels = {
+            CollectionRequest.Urgency.LOW: 'Низкая',
+            CollectionRequest.Urgency.MEDIUM: 'Средняя',
+            CollectionRequest.Urgency.HIGH: 'Высокая',
+        }
+        urgency_qs = requests_filtered.values('urgency').annotate(
+            count=Count('id'),
+        ).order_by('-count')
+        urgency_breakdown = [
+            {
+                'urgency': row['urgency'],
+                'urgency_display': urgency_labels.get(row['urgency'], row['urgency'] or '—'),
+                'count': row['count'],
+            }
+            for row in urgency_qs
+        ]
+
+        completion_time_buckets = [
+            {'bucket': 'under_24h', 'label': '< 24 ч', 'count': 0},
+            {'bucket': '1_3d', 'label': '1–3 дн', 'count': 0},
+            {'bucket': '3_7d', 'label': '3–7 дн', 'count': 0},
+            {'bucket': 'over_7d', 'label': '> 7 дн', 'count': 0},
+        ]
+        bucket_map = {b['bucket']: b for b in completion_time_buckets}
+        if completed_reqs.exists():
+            delta_expr = ExpressionWrapper(
+                F('completed_at') - F('created_at'),
+                output_field=DurationField(),
+            )
+            completed_deltas = list(
+                completed_reqs.annotate(delta=delta_expr).values_list('delta', flat=True)
+            )
+            for delta in completed_deltas:
+                if delta is None:
+                    continue
+                if hasattr(delta, 'total_seconds'):
+                    seconds = delta.total_seconds()
+                else:
+                    seconds = float(delta)
+                hours = float(seconds) / 3600
+                if hours < 24:
+                    bucket_map['under_24h']['count'] += 1
+                elif hours < 72:
+                    bucket_map['1_3d']['count'] += 1
+                elif hours < 168:
+                    bucket_map['3_7d']['count'] += 1
+                else:
+                    bucket_map['over_7d']['count'] += 1
+
+        completed_with_actual = requests_filtered.filter(
+            status=CollectionRequest.Status.COMPLETED,
+            actual_amount__isnull=False,
+        )
+        est_sum = completed_with_actual.aggregate(t=Sum('estimated_amount'))['t'] or Decimal('0')
+        act_sum = completed_with_actual.aggregate(t=Sum('actual_amount'))['t'] or Decimal('0')
+        est_avg = completed_with_actual.aggregate(a=Avg('estimated_amount'))['a'] or Decimal('0')
+        act_avg = completed_with_actual.aggregate(a=Avg('actual_amount'))['a'] or Decimal('0')
+        deviation_percent = (
+            round(float(act_sum - est_sum) / float(est_sum) * 100, 1)
+            if est_sum else 0
+        )
+        estimated_vs_actual = {
+            'request_count': completed_with_actual.count(),
+            'total_estimated_kg': float(est_sum),
+            'total_actual_kg': float(act_sum),
+            'avg_estimated_kg': round(float(est_avg), 2),
+            'avg_actual_kg': round(float(act_avg), 2),
+            'deviation_percent': deviation_percent,
+        }
+
+        status_over_time_qs = requests_filtered.annotate(
+            period=trunc_fn(date_field),
+        ).values('period').annotate(
+            new=Count(Case(When(status=CollectionRequest.Status.NEW, then=1))),
+            accepted=Count(Case(When(status=CollectionRequest.Status.ACCEPTED, then=1))),
+            completed=Count(Case(When(status=CollectionRequest.Status.COMPLETED, then=1))),
+            cancelled=Count(Case(When(status=CollectionRequest.Status.CANCELLED, then=1))),
+        ).order_by('period')
+        status_over_time = [
+            {
+                'period_label': row['period'].strftime(date_format) if row['period'] and hasattr(row['period'], 'strftime') else str(row['period'] or ''),
+                'new': row['new'] or 0,
+                'accepted': row['accepted'] or 0,
+                'completed': row['completed'] or 0,
+                'cancelled': row['cancelled'] or 0,
+            }
+            for row in status_over_time_qs
+        ]
+
+        requests_insights = {
+            'funnel': funnel_steps,
+            'backlog': backlog,
+            'urgency_breakdown': urgency_breakdown,
+            'completion_time_buckets': completion_time_buckets,
+            'estimated_vs_actual': estimated_vs_actual,
+            'status_over_time': status_over_time,
+        }
+
+        # --- Public pickup requests (homepage, no institution account) ---
+        pickup_filtered = PublicPickupRequest.objects.filter(
+            created_at__date__gte=start_date,
+            created_at__date__lte=end_date,
+        )
+        pickup_status_labels = {
+            PublicPickupRequest.Status.NEW: 'Новые',
+            PublicPickupRequest.Status.CONTACTED: 'Связались',
+            PublicPickupRequest.Status.DONE: 'Выполнены',
+            PublicPickupRequest.Status.CANCELLED: 'Отменены',
+        }
+        pickup_by_status_qs = pickup_filtered.values('status').annotate(count=Count('id'))
+        pickup_by_status = [
+            {
+                'status': row['status'],
+                'status_display': pickup_status_labels.get(row['status'], row['status']),
+                'count': row['count'],
+            }
+            for row in pickup_by_status_qs
+        ]
+        pickup_materials_qs = PublicPickupRequestLine.objects.filter(
+            request__in=pickup_filtered,
+        ).values('material__code', 'material__name').annotate(
+            total_kg=Sum('weight_kg'),
+            request_count=Count('request_id', distinct=True),
+        ).order_by('-total_kg')
+        pickup_materials = [
+            {
+                'material_type': row['material__code'],
+                'material_type_display': row['material__name'] or row['material__code'],
+                'total_kg': float(row['total_kg'] or 0),
+                'request_count': row['request_count'],
+            }
+            for row in pickup_materials_qs
+        ]
+        pickup_ot = pickup_filtered.annotate(
+            period=trunc_fn('created_at'),
+        ).values('period').annotate(count=Count('id')).order_by('period')
+        pickup_over_time = [
+            {
+                'period_label': row['period'].strftime(date_format) if row['period'] and hasattr(row['period'], 'strftime') else str(row['period'] or ''),
+                'count': row['count'],
+            }
+            for row in pickup_ot
+        ]
+        pickup_total_kg = PublicPickupRequestLine.objects.filter(
+            request__in=pickup_filtered,
+        ).aggregate(t=Sum('weight_kg'))['t'] or Decimal('0')
+        pickup_payout = pickup_filtered.aggregate(t=Sum('estimated_payout'))['t'] or Decimal('0')
+        public_pickup = {
+            'kpis': {
+                'total_period': pickup_filtered.count(),
+                'new': pickup_filtered.filter(status=PublicPickupRequest.Status.NEW).count(),
+                'done': pickup_filtered.filter(status=PublicPickupRequest.Status.DONE).count(),
+                'total_kg': float(pickup_total_kg),
+                'total_payout': float(pickup_payout),
+            },
+            'by_status': pickup_by_status,
+            'materials': pickup_materials,
+            'over_time': pickup_over_time,
+        }
+
         # --- Bonus: top point earners, popular products ---
         bonus_confirmed = InstitutionBonus.objects.filter(status=InstitutionBonus.Status.CONFIRMED)
         bonus_over_time = list(
@@ -1474,6 +2523,15 @@ class AdminAnalyticsView(APIView):
 
         payload = {
             'period': {'date_from': start_date.isoformat(), 'date_to': end_date.isoformat(), 'basis': basis},
+            'filters': {
+                'company_id': int(company_id) if company_id.isdigit() else None,
+                'company_name': filter_company_name,
+                'institution_id': int(institution_id) if institution_id.isdigit() else None,
+                'institution_name': filter_institution_name,
+                'institution_type': institution_type_filter or None,
+                'material_type': material_type_filter or None,
+                'material_type_display': material_choices.get(material_type_filter) if material_type_filter else None,
+            },
             'kpis': kpis,
             'materials': materials,
             'top_companies': top_companies,
@@ -1488,5 +2546,179 @@ class AdminAnalyticsView(APIView):
             'bonus_over_time': bonus_over_time_serialized,
             'top_point_institutions': top_point_institutions_serialized,
             'popular_products': popular_products_serialized,
+            'requests_insights': requests_insights,
+            'public_pickup': public_pickup,
         }
         return Response(payload)
+
+
+def _material_media_url(file_field):
+    if not file_field or not file_field.name:
+        return None
+    url = file_field.url
+    if url and not url.startswith('/'):
+        url = '/' + url.lstrip('/')
+    return url
+
+
+class PublicProductCategoriesView(APIView):
+    """Active product categories for public catalog."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        qs = (
+            ProductCategory.objects.filter(is_active=True)
+            .annotate(product_count=Count('products', filter=Q(products__is_active=True)))
+            .filter(product_count__gt=0)
+            .order_by('sort_order', 'name')
+        )
+        serializer = ProductCategorySerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class PublicProductsView(APIView):
+    """Active bonus-shop products for public catalog (no auth required)."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        qs = Product.objects.filter(is_active=True).select_related('category').order_by(
+            'category__sort_order', 'name',
+        )
+        category = request.query_params.get('category')
+        if category:
+            if category.isdigit():
+                qs = qs.filter(category_id=int(category))
+            else:
+                qs = qs.filter(category__slug=category)
+        payload = [
+            {
+                'id': p.id,
+                'name': p.name,
+                'description': p.description or '',
+                'price_in_points': p.price_in_points,
+                'image_url': _material_media_url(p.image),
+                'category_id': p.category_id,
+                'category_name': p.category.name if p.category else None,
+                'category_slug': p.category.slug if p.category else None,
+            }
+            for p in qs
+        ]
+        serializer = PublicProductSerializer(payload, many=True)
+        return Response(serializer.data)
+
+
+class PublicMaterialsView(APIView):
+    """Active materials with current prices for the public homepage and catalog."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        qs = (
+            Material.objects.filter(is_active=True, price__is_active=True)
+            .select_related('price')
+            .order_by('sort_order', 'name')
+        )
+        payload = [
+            {
+                'id': m.id,
+                'code': m.code,
+                'name': m.name,
+                'short_description': m.short_description or '',
+                'icon': m.icon or 'package-variant',
+                'icon_url': _material_media_url(m.icon_image),
+                'image_url': _material_media_url(m.image),
+                'price_per_kg': m.price.price_per_kg,
+                'sort_order': m.sort_order,
+            }
+            for m in qs
+        ]
+        serializer = PublicMaterialSerializer(payload, many=True)
+        return Response(serializer.data)
+
+
+class PublicWeightLimitsView(APIView):
+    """Min/max weight for public pickup calculator."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        min_kg, max_kg = RequestWeightLimit.get_limits()
+        return Response({'min_kg': str(min_kg), 'max_kg': str(max_kg)})
+
+
+class PublicPickupRequestViewSet(
+    PublicFormCreateMixin,
+    AuditLogMixin,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Public POST pickup request; admin list/update status."""
+
+    queryset = PublicPickupRequest.objects.prefetch_related(
+        'lines__material'
+    ).order_by('-created_at')
+    throttle_classes = [PublicFormThrottle]
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsAdministrator()]
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return PublicPickupRequestCreateSerializer
+        if self.action in ('partial_update', 'update'):
+            return PublicPickupRequestAdminSerializer
+        return PublicPickupRequestAdminSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = PublicPickupRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        try:
+            write_audit_log(
+                request=request,
+                action_type='create',
+                target_model='PublicPickupRequest',
+                target_id=instance.pk,
+                short_summary='Public pickup request from homepage',
+                payload={
+                    'items': [
+                        {
+                            'material': line.material.code,
+                            'weight_kg': str(line.weight_kg),
+                        }
+                        for line in instance.lines.select_related('material').all()
+                    ],
+                    'phone': instance.phone,
+                },
+            )
+        except Exception:
+            logger.exception('Failed to write audit log for pickup request %s', instance.pk)
+        instance = PublicPickupRequest.objects.prefetch_related('lines__material').get(pk=instance.pk)
+        out = PublicPickupRequestAdminSerializer(instance)
+        return Response(out.data, status=201)
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        allowed = {'status', 'admin_notes'}
+        data = {k: v for k, v in request.data.items() if k in allowed}
+        serializer = PublicPickupRequestAdminSerializer(
+            instance, data=data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        write_audit_log(
+            request=request,
+            action_type='update',
+            target_model='PublicPickupRequest',
+            target_id=instance.pk,
+            short_summary='Public pickup request updated',
+            payload=data,
+        )
+        return Response(serializer.data)

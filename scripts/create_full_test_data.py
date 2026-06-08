@@ -43,9 +43,6 @@ from collection.models import (
 
 User = get_user_model()
 
-# Пароль для всех тестовых пользователей
-PASSWORD = 'test123'
-
 # 1 администратор
 ADMIN = {
     'username': 'admin@vuvoz.ru',
@@ -179,6 +176,9 @@ def _institutions():
 
 
 def run():
+    from scripts.dev_env import get_dev_test_password
+
+    password = get_dev_test_password()
     now = timezone.now()
     one_year_ago = now - timedelta(days=365)
 
@@ -210,9 +210,9 @@ def run():
         },
     )
     if created:
-        admin_user.set_password(PASSWORD)
+        admin_user.set_password(password)
         admin_user.save()
-        print(f"Создан администратор: {ADMIN['username']} / {PASSWORD}")
+        print(f"Создан администратор: {ADMIN['username']} / {password}")
 
     # 3. Компании
     companies_profiles = []
@@ -222,7 +222,7 @@ def run():
             defaults={'email': c['email'], 'role': User.Role.COMPANY, 'is_active': True},
         )
         if created:
-            user.set_password(PASSWORD)
+            user.set_password(password)
             user.save()
         profile, _ = CompanyProfile.objects.get_or_create(
             user=user,
@@ -249,7 +249,7 @@ def run():
             defaults={'email': email, 'role': User.Role.INSTITUTION, 'is_active': True},
         )
         if created:
-            user.set_password(PASSWORD)
+            user.set_password(password)
             user.save()
         inst, _ = InstitutionProfile.objects.get_or_create(
             user=user,
@@ -329,9 +329,9 @@ def run():
 
     print(f"Заявок создано: {completed_count} завершённых, {active_count} активных")
     print("\nДоступ для входа:")
-    print(f"  Администратор: {ADMIN['username']} / {PASSWORD}")
-    print("  Компании: company1@test.com … company8@test.com /", PASSWORD)
-    print("  Организации: school01@test.com, office01@test.com, factory01@test.com, private01@test.com … /", PASSWORD)
+    print(f"  Администратор: {ADMIN['username']} / {password}")
+    print("  Компании: company1@test.com … company8@test.com /", password)
+    print("  Организации: school01@test.com, office01@test.com, factory01@test.com, private01@test.com … /", password)
 
 
 if __name__ == '__main__':

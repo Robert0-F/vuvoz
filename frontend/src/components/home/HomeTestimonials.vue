@@ -2,7 +2,7 @@
   <section ref="sectionRef" class="home-testimonials" :class="{ 'hp-visible': visible }">
     <div class="home-testimonials__inner">
       <h2 class="hp-section-title home-testimonials__title">Отзывы клиентов</h2>
-      <p class="hp-subtitle home-testimonials__subtitle">Компании и организации о работе с Vuvoz.</p>
+      <p class="hp-subtitle home-testimonials__subtitle">Компании и организации о работе с «Зелёным счётом».</p>
 
       <div class="home-testimonials__carousel">
         <button type="button" class="home-testimonials__nav home-testimonials__nav--prev" aria-label="Назад" @click="prev">

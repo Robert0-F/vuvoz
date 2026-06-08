@@ -136,12 +136,24 @@ const estimatedWeight = computed(() => {
 })
 
 const statusLabel = computed(() => {
-  const m: Record<string, string> = { new: 'Новый', accepted: 'Принят', completed: 'Завершён', cancelled: 'Отменён' }
+  const m: Record<string, string> = {
+    new: 'Новый',
+    accepted: 'Принят',
+    pending_confirmation: 'Ожидает подтверждения',
+    completed: 'Завершён',
+    cancelled: 'Отменён',
+  }
   return m[props.request.status] || props.request.status
 })
 
 const statusColor = computed(() => {
-  const m: Record<string, string> = { new: 'warning', accepted: 'info', completed: 'success', cancelled: 'grey' }
+  const m: Record<string, string> = {
+    new: 'warning',
+    accepted: 'info',
+    pending_confirmation: 'warning',
+    completed: 'success',
+    cancelled: 'grey',
+  }
   return m[props.request.status] || 'grey'
 })
 

@@ -5,6 +5,7 @@ import type {
   CurrentUserResponse,
   CompanyProfile,
   InstitutionProfile,
+  SupportProfile,
 } from '@/types'
 
 export const useUserStore = defineStore('user', () => {
@@ -15,6 +16,7 @@ export const useUserStore = defineStore('user', () => {
   const isAdmin = computed(() => currentUser.value?.role === 'admin')
   const isCompany = computed(() => currentUser.value?.role === 'company')
   const isInstitution = computed(() => currentUser.value?.role === 'institution')
+  const isSupport = computed(() => currentUser.value?.role === 'support')
   const profile = computed(() => currentUser.value?.profile ?? null)
   const companyProfile = computed(
     () => (currentUser.value?.role === 'company' ? (currentUser.value.profile as CompanyProfile) : null)
@@ -23,6 +25,12 @@ export const useUserStore = defineStore('user', () => {
     () =>
       currentUser.value?.role === 'institution'
         ? (currentUser.value.profile as InstitutionProfile)
+        : null
+  )
+  const supportProfile = computed(
+    () =>
+      currentUser.value?.role === 'support'
+        ? (currentUser.value.profile as SupportProfile)
         : null
   )
 
@@ -43,9 +51,11 @@ export const useUserStore = defineStore('user', () => {
     isAdmin,
     isCompany,
     isInstitution,
+    isSupport,
     profile,
     companyProfile,
     institutionProfile,
+    supportProfile,
     fetchMe,
     clearUser,
   }

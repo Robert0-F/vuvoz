@@ -1,6 +1,7 @@
 <template>
   <div class="company-dashboard">
-    <v-app-bar color="primary" density="compact" class="company-dashboard__app-bar">
+    <v-app-bar color="primary" density="compact" class="company-dashboard__app-bar app-dashboard-bar">
+      <AppHeaderLogo :height-px="32" href="/" class="app-dashboard-bar__logo" />
       <v-app-bar-title class="pl-2">Операционный центр</v-app-bar-title>
       <v-spacer />
       <v-btn variant="text" icon="mdi-refresh" :loading="refreshing" @click="handleRefresh" />
@@ -44,6 +45,19 @@
           </template>
         </v-alert>
 
+        <section class="company-dashboard__month-bar mb-4 d-flex flex-wrap align-center ga-3">
+          <span class="text-body-2 font-weight-medium">Статистика за месяц:</span>
+          <input
+            v-model="dashboardMonthInput"
+            type="month"
+            class="company-dashboard__month-input"
+            @change="onDashboardMonthChange"
+          />
+          <span v-if="dashboard?.month_start" class="text-caption text-medium-emphasis">
+            с {{ formatMonthLabel(dashboard.selected_month || dashboardMonthInput) }}
+          </span>
+        </section>
+
         <!-- KPI Header -->
         <section class="company-dashboard__kpis mb-6">
           <v-row dense>
@@ -64,14 +78,14 @@
             </v-col>
             <v-col cols="12" sm="6" md="4" lg="2">
               <company-stats-widget
-                title="Завершено за месяц"
+                :title="kpiCompletedTitle"
                 :value="kpiCompletedMonth"
                 icon="mdi-check-circle-multiple"
               />
             </v-col>
             <v-col cols="12" sm="6" md="4" lg="2">
               <company-stats-widget
-                title="Вес за месяц (кг)"
+                :title="kpiWeightTitle"
                 :value="kpiWeightMonth"
                 icon="mdi-weight-kilogram"
               />
@@ -261,11 +275,25 @@
         <v-card-text>
           <template v-if="statusUpdate !== 'completed'">
             <v-select v-model="statusUpdate" :items="statusItems" label="Статус" variant="outlined" class="mb-3" />
-            <v-text-field v-model="statusUpdateEstimatedDate" label="Предполагаемая дата вывоза" type="date" variant="outlined" density="comfortable" class="mb-3" hint="Опционально: когда планируете вывезти" persistent-hint />
-            <v-text-field v-model="statusUpdateActualDate" label="Фактическая дата вывоза" type="date" variant="outlined" density="comfortable" class="mb-3" hint="Опционально: можно указать позже в карточке заявки" persistent-hint />
+            <p v-if="selectedRequest.desired_date" class="text-body-2 mb-3">
+              Желаемая дата учреждения: <strong>{{ formatRequestDate(selectedRequest.desired_date) }}</strong>
+            </p>
+            <v-text-field
+              v-model="statusUpdateActualDate"
+              label="Дата вывоза"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              class="mb-3"
+              hint="Когда компания планирует вывезти макулатуру"
+              persistent-hint
+            />
             <v-textarea v-model="statusUpdateNotes" label="Внутренние заметки" variant="outlined" rows="2" />
           </template>
           <template v-else>
+            <p class="text-body-2 text-medium-emphasis mb-3">
+              После сохранения учреждение должно подтвердить фактический вес вывоза.
+            </p>
             <p v-if="hasMultipleMaterials" class="text-body-2 text-medium-emphasis mb-3">
               Укажите фактический вес (кг) по каждому типу сырья.
             </p>
@@ -319,6 +347,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
 import { useCompanyDashboardStore } from '@/stores/companyDashboard'
 import { useBreakpoints } from '@/composables/useBreakpoints'
+import AppHeaderLogo from '@/components/AppHeaderLogo.vue'
 import CompanyStatsWidget from '@/components/company/StatsWidget.vue'
 import CompanyDateRangePicker from '@/components/company/DateRangePicker.vue'
 import CompanyRequestCard from '@/components/company/RequestCard.vue'
@@ -351,6 +380,29 @@ const kpiCompletedMonth = computed(() => dashboard.value?.completed_this_month ?
 const kpiWeightMonth = computed(() => formatWeight(dashboard.value?.weight_kg_this_month))
 const kpiInstitutions = computed(() => dashboard.value?.institutions_count ?? institutions.value.length)
 
+const dashboardMonthInput = ref(store.defaultMonth())
+
+const kpiMonthLabel = computed(() => {
+  const m = dashboard.value?.selected_month || dashboardMonthInput.value
+  if (!m) return 'месяц'
+  const [y, mo] = m.split('-')
+  const names = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+  return `${names[parseInt(mo, 10) - 1]} ${y}`
+})
+
+const kpiCompletedTitle = computed(() => `Завершено за ${kpiMonthLabel.value}`)
+const kpiWeightTitle = computed(() => `Вес за ${kpiMonthLabel.value} (кг)`)
+
+function formatMonthLabel(ym: string) {
+  if (!ym) return ''
+  const [y, mo] = ym.split('-')
+  return `01.${mo}.${y}`
+}
+
+async function onDashboardMonthChange() {
+  await store.fetchDashboard(dashboardMonthInput.value)
+}
+
 const activeTab = ref('requests')
 const institutionIdFilter = ref<number | null>(null)
 const requestSubTab = ref('new')
@@ -364,7 +416,6 @@ const selectedInstitution = ref<InstitutionProfile | null>(null)
 
 const statusDialog = ref(false)
 const statusUpdate = ref('')
-const statusUpdateEstimatedDate = ref('')
 const statusUpdateActualDate = ref('')
 const statusUpdateNotes = ref('')
 const completeActualAmount = ref('')
@@ -515,10 +566,14 @@ function filterRequestsByInstitution(inst: InstitutionProfile) {
   institutionIdFilter.value = inst.id
 }
 
+function formatRequestDate(s: string) {
+  if (!s) return '—'
+  return new Date(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 function openAcceptDialog(r: CollectionRequest) {
   selectedRequest.value = r
   statusUpdate.value = 'accepted'
-  statusUpdateEstimatedDate.value = r.estimated_collection_date || r.desired_date?.slice(0, 10) || ''
   statusUpdateActualDate.value = r.actual_collection_date?.slice(0, 10) || ''
   statusUpdateNotes.value = r.notes || ''
   statusDialog.value = true
@@ -645,8 +700,6 @@ async function saveStatus() {
   updatingStatus.value = true
   try {
     const payload: Record<string, unknown> = { status: statusUpdate.value }
-    if (statusUpdateEstimatedDate.value) payload.estimated_collection_date = statusUpdateEstimatedDate.value
-    else payload.estimated_collection_date = null
     if (statusUpdateActualDate.value) payload.actual_collection_date = statusUpdateActualDate.value
     else payload.actual_collection_date = null
     payload.notes = statusUpdateNotes.value || ''
@@ -772,6 +825,13 @@ onUnmounted(() => {
     width: 100%;
   }
 }
+.company-dashboard__month-input {
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--v-border-color), 0.4);
+  font-size: 0.95rem;
+}
+
 .company-dashboard__kpis :deep(.stats-widget) {
   height: 100%;
 }

@@ -38,6 +38,12 @@ $font-body: 'Inter', system-ui, sans-serif;
     line-height: 1.6;
   }
 
+  .hp-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
   .hp-card {
     border-radius: var(--vuvoz-radius-lg);
     box-shadow: var(--vuvoz-shadow);

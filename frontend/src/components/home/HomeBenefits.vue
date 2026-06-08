@@ -1,7 +1,7 @@
 <template>
   <section ref="sectionRef" class="home-benefits" :class="{ 'hp-visible': visible }">
-    <div class="home-benefits__inner">
-      <h2 class="hp-section-title home-benefits__title">Почему Vuvoz</h2>
+    <div class="home-benefits__inner hp-container">
+      <h2 class="hp-section-title home-benefits__title">Почему «Зелёный счёт»</h2>
       <p class="hp-subtitle home-benefits__subtitle">Прозрачность, удобство и выгода для каждой организации.</p>
 
       <div class="home-benefits__grid">
@@ -14,7 +14,9 @@
           @mouseenter="hovered = i"
           @mouseleave="hovered = -1"
         >
-          <div class="home-benefits__icon">{{ item.icon }}</div>
+          <div class="home-benefits__icon-wrap" :class="{ 'home-benefits__icon-wrap--hover': hovered === i }">
+            <span class="home-benefits__icon">{{ item.icon }}</span>
+          </div>
           <h3 class="home-benefits__item-title">{{ item.title }}</h3>
           <p class="home-benefits__item-desc">{{ item.desc }}</p>
         </div>
@@ -51,7 +53,7 @@ onMounted(() => {
 <style scoped lang="scss">
 .home-benefits {
   padding: clamp(3rem, 8vw, 5rem) 1.5rem;
-  background: var(--vuvoz-surface-muted);
+  background: linear-gradient(180deg, #f0fdfa 0%, #fff 50%, var(--vuvoz-surface-muted) 100%);
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.6s var(--vuvoz-ease), transform 0.6s var(--vuvoz-ease);
@@ -100,17 +102,34 @@ onMounted(() => {
   padding: 1.75rem;
   border-radius: var(--vuvoz-radius-lg);
   border: 1px solid var(--vuvoz-border);
-  transition: transform 0.25s var(--vuvoz-ease), box-shadow 0.25s var(--vuvoz-ease);
+  transition: transform 0.25s var(--vuvoz-ease), box-shadow 0.25s var(--vuvoz-ease), border-color 0.25s;
 
   &:hover {
-    transform: translateY(-4px);
+    transform: translateY(-6px);
     box-shadow: var(--vuvoz-shadow-lg);
+    border-color: rgba(var(--v-theme-primary), 0.25);
+  }
+}
+
+.home-benefits__icon-wrap {
+  width: 3.25rem;
+  height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(var(--v-theme-primary), 0.12), rgba(var(--v-theme-primary), 0.04));
+  margin-bottom: 1rem;
+  transition: transform 0.25s var(--vuvoz-ease);
+
+  &--hover {
+    transform: scale(1.08);
   }
 }
 
 .home-benefits__icon {
-  font-size: 2rem;
-  margin-bottom: 1rem;
+  font-size: 1.75rem;
+  line-height: 1;
 }
 
 .home-benefits__item-title {

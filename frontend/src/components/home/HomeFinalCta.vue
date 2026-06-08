@@ -3,7 +3,7 @@
     <div class="home-final-cta__bg" />
     <div class="home-final-cta__content">
       <h2 class="home-final-cta__title">Готовы начать зарабатывать на отходах?</h2>
-      <p class="home-final-cta__sub">Присоединяйтесь к компаниям, которые уже выбрали Vuvoz.</p>
+      <p class="home-final-cta__sub">Присоединяйтесь к организациям, которые уже ведут учёт на «Зелёном счёте».</p>
       <div class="home-final-cta__buttons">
         <button type="button" class="home-final-cta__btn home-final-cta__btn--primary" @click="$emit('register')">
           Зарегистрировать организацию

@@ -1,3 +1,5 @@
+import os
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -11,6 +13,7 @@ class CustomUser(AbstractUser):
         ADMIN = 'admin', 'Administrator'
         COMPANY = 'company', 'Collection Company'
         INSTITUTION = 'institution', 'Institution'
+        SUPPORT = 'support', 'Technical Support'
 
     role = models.CharField(
         max_length=20,
@@ -68,6 +71,14 @@ class InstitutionProfile(models.Model):
         on_delete=models.CASCADE,
         related_name='institutions',
     )
+    support_user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        related_name='supported_institutions',
+        null=True,
+        blank=True,
+        limit_choices_to={'role': CustomUser.Role.SUPPORT},
+    )
     institution_name = models.CharField(max_length=255)
     address = models.TextField()
     contact_person = models.CharField(max_length=255)
@@ -109,6 +120,7 @@ class CollectionRequest(models.Model):
     class Status(models.TextChoices):
         NEW = 'new', 'New'
         ACCEPTED = 'accepted', 'Accepted'
+        PENDING_CONFIRMATION = 'pending_confirmation', 'Pending confirmation'
         COMPLETED = 'completed', 'Completed'
         CANCELLED = 'cancelled', 'Cancelled'
 
@@ -255,15 +267,43 @@ class InAppNotification(models.Model):
         return f"{self.title} ({self.user_id})"
 
 
+def material_icon_upload_to(instance, filename):
+    return f'materials/icons/{instance.code or "draft"}.png'
+
+
+def material_photo_upload_to(instance, filename):
+    ext = os.path.splitext(filename)[1].lower() or '.jpg'
+    return f'materials/photos/{instance.code or "draft"}{ext}'
+
+
 class Material(models.Model):
     """Material type (extensible). Admin can add new materials; prices and request lines reference this."""
 
     name = models.CharField(max_length=120)
     code = models.CharField(max_length=32, unique=True)
+    short_description = models.CharField(max_length=255, blank=True)
+    icon_image = models.ImageField(
+        upload_to=material_icon_upload_to,
+        blank=True,
+        null=True,
+        help_text='Square icon for homepage and calculator (stored as 96×96 PNG).',
+    )
+    image = models.ImageField(
+        upload_to=material_photo_upload_to,
+        blank=True,
+        null=True,
+        help_text='Photo for the materials catalog page.',
+    )
+    icon = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text='MDI icon fallback when no icon image is uploaded, e.g. package-variant',
+    )
+    sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ['name']
+        ordering = ['sort_order', 'name']
         verbose_name = 'Material'
         verbose_name_plural = 'Materials'
 
@@ -416,6 +456,39 @@ class BonusConfig(models.Model):
         return Decimal('0')
 
 
+class SupportConfig(models.Model):
+    """Global technical support specialist. Single row; all institutions chat with this user."""
+
+    support_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='support_config',
+        limit_choices_to={'role': CustomUser.Role.SUPPORT},
+    )
+
+    class Meta:
+        verbose_name = 'Настройка техподдержки'
+        verbose_name_plural = 'Настройки техподдержки'
+
+    def __str__(self):
+        if self.support_user_id:
+            return f'Техподдержка: {self.support_user.get_username()}'
+        return 'Техподдержка не назначена'
+
+    @classmethod
+    def get_support_user(cls):
+        row = cls.objects.select_related('support_user').first()
+        return row.support_user if row else None
+
+    def assign_to_all_institutions(self):
+        """Link every institution to the configured support user."""
+        if not self.support_user_id:
+            return 0
+        return InstitutionProfile.objects.update(support_user_id=self.support_user_id)
+
+
 class InstitutionBonus(models.Model):
     """Bonus for an institution from a completed collection request. Created when request is completed; admin confirms amount and awards."""
 
@@ -470,9 +543,33 @@ class InstitutionBonus(models.Model):
         return f'{self.institution.institution_name} — {self.awarded_amount or self.calculated_amount} баллов (заявка {self.collection_request_id})'
 
 
+class ProductCategory(models.Model):
+    """Category for bonus-shop products (office supplies, merch, etc.)."""
+
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=120, unique=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Категория товаров (баллы)'
+        verbose_name_plural = 'Категории товаров (баллы)'
+        ordering = ['sort_order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
 class Product(models.Model):
     """Product that institutions can order for green points. Created and managed in admin."""
 
+    category = models.ForeignKey(
+        ProductCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+    )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     image = models.ImageField(
@@ -493,7 +590,7 @@ class Product(models.Model):
     class Meta:
         verbose_name = 'Товар (баллы)'
         verbose_name_plural = 'Товары (баллы)'
-        ordering = ['name']
+        ordering = ['category__sort_order', 'name']
 
     def __str__(self):
         return f'{self.name} — {self.price_in_points} баллов'
@@ -574,6 +671,7 @@ class InstitutionRegistrationRequest(models.Model):
     institution_name = models.CharField(max_length=255)
     address = models.TextField()
     phone = models.CharField(max_length=50)
+    email = models.EmailField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -583,3 +681,162 @@ class InstitutionRegistrationRequest(models.Model):
 
     def __str__(self):
         return f'{self.institution_name} — {self.first_name} ({self.created_at.date()})'
+
+
+class PublicPickupRequest(models.Model):
+    """Guest pickup request from the public homepage calculator (no institution account)."""
+
+    class Status(models.TextChoices):
+        NEW = 'new', 'Новая'
+        CONTACTED = 'contacted', 'Связались'
+        DONE = 'done', 'Выполнена'
+        CANCELLED = 'cancelled', 'Отменена'
+
+    contact_name = models.CharField(max_length=255, blank=True)
+    phone = models.CharField(max_length=50)
+    address = models.TextField()
+    preferred_date = models.DateField()
+    estimated_payout = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NEW,
+        db_index=True,
+    )
+    admin_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Заявка на вывоз с сайта'
+        verbose_name_plural = 'Заявки на вывоз с сайта'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Заявка #{self.pk} ({self.created_at.date()})'
+
+
+class PublicPickupRequestLine(models.Model):
+    """One material line in a public pickup request."""
+
+    request = models.ForeignKey(
+        PublicPickupRequest,
+        on_delete=models.CASCADE,
+        related_name='lines',
+    )
+    material = models.ForeignKey(
+        Material,
+        on_delete=models.PROTECT,
+        related_name='public_pickup_lines',
+    )
+    weight_kg = models.DecimalField(max_digits=10, decimal_places=2)
+    line_payout = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = 'Строка заявки на вывоз'
+        verbose_name_plural = 'Строки заявок на вывоз'
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['request', 'material'],
+                name='uniq_public_pickup_request_material',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.material.name} — {self.weight_kg} кг'
+
+
+class CompanyRegistrationRequest(models.Model):
+    """Request from homepage for a collection company to join the platform."""
+
+    company_name = models.CharField(max_length=255)
+    contact_name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=50)
+    email = models.EmailField(blank=True, default='')
+    address = models.TextField(blank=True, default='')
+    comment = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Заявка на регистрацию компании'
+        verbose_name_plural = 'Заявки на регистрацию компаний'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.company_name} — {self.contact_name} ({self.created_at.date()})'
+
+
+class AuditLog(models.Model):
+    """Structured audit trail for user actions across roles and entities."""
+
+    class Category(models.TextChoices):
+        INFO = 'info', 'Info'
+        WARNING = 'warning', 'Warning'
+        CRITICAL = 'critical', 'Critical'
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+    )
+    actor_role = models.CharField(max_length=20, blank=True, db_index=True)
+    action_type = models.CharField(max_length=64, db_index=True)
+    category = models.CharField(
+        max_length=20,
+        choices=Category.choices,
+        default=Category.INFO,
+        db_index=True,
+    )
+    target_model = models.CharField(max_length=120, blank=True, db_index=True)
+    target_id = models.CharField(max_length=64, blank=True, db_index=True)
+    short_summary = models.CharField(max_length=255)
+    payload_json = models.JSONField(default=dict, blank=True)
+    ip_address = models.CharField(max_length=64, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Аудит действия'
+        verbose_name_plural = 'Аудит действий'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['actor_role', 'created_at']),
+            models.Index(fields=['category', 'created_at']),
+            models.Index(fields=['target_model', 'target_id']),
+        ]
+
+    def __str__(self):
+        return f'[{self.created_at:%Y-%m-%d %H:%M:%S}] {self.action_type}: {self.short_summary}'
+
+
+class SupportChatMessage(models.Model):
+    """Text chat message between institution and assigned support user."""
+
+    institution = models.ForeignKey(
+        InstitutionProfile,
+        on_delete=models.CASCADE,
+        related_name='support_chat_messages',
+    )
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='support_chat_sent_messages',
+    )
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Сообщение техподдержки'
+        verbose_name_plural = 'Сообщения техподдержки'
+        indexes = [
+            models.Index(fields=['institution', 'created_at']),
+            models.Index(fields=['institution', 'is_read']),
+        ]
+
+    def __str__(self):
+        return f'[{self.created_at:%Y-%m-%d %H:%M:%S}] institution={self.institution_id} sender={self.sender_id}'
