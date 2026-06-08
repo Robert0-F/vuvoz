@@ -19,22 +19,25 @@ const props = withDefaults(
     title: string
     value: string | number
     icon?: string
-    color?: 'primary' | 'success' | 'info' | 'warning'
+    color?: 'primary' | 'success' | 'info' | 'warning' | 'teal' | 'secondary'
     subtitle?: string
     elevated?: boolean
   }>(),
   { icon: 'mdi-chart-line', color: 'primary', elevated: true }
 )
 
-const colorMap = {
+const colorMap: Record<string, { bg: string; icon: string }> = {
   primary: { bg: 'rgba(13, 148, 136, 0.12)', icon: '#0d9488' },
   success: { bg: 'rgba(5, 150, 105, 0.12)', icon: '#059669' },
   info: { bg: 'rgba(14, 165, 233, 0.12)', icon: '#0ea5e9' },
   warning: { bg: 'rgba(245, 158, 11, 0.12)', icon: '#f59e0b' },
+  teal: { bg: 'rgba(13, 148, 136, 0.12)', icon: '#0d9488' },
+  secondary: { bg: 'rgba(100, 116, 139, 0.12)', icon: '#64748b' },
 }
 
-const iconBg = computed(() => colorMap[props.color].bg)
-const iconColor = computed(() => colorMap[props.color].icon)
+const palette = computed(() => colorMap[props.color] ?? colorMap.primary)
+const iconBg = computed(() => palette.value.bg)
+const iconColor = computed(() => palette.value.icon)
 const formattedValue = computed(() => {
   const v = props.value
   if (typeof v === 'number') return v.toLocaleString('ru-RU')

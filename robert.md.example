@@ -1,0 +1,8 @@
+# Пример команд PostgreSQL (без паролей)
+
+Подставьте пароль из локального `.env` (`POSTGRES_PASSWORD` / `DATABASE_URL`).
+
+```sql
+CREATE USER vuvoz_user WITH PASSWORD 'YOUR_PASSWORD_FROM_ENV';
+CREATE DATABASE vuvoz_db OWNER vuvoz_user ENCODING 'UTF8';
+```

@@ -1,8 +1,10 @@
 <template>
   <section ref="sectionRef" class="home-for-whom" :class="{ 'hp-visible': visible }">
-    <div class="home-for-whom__inner">
-      <h2 class="hp-section-title home-for-whom__title">Для кого Vuvoz</h2>
-      <p class="hp-subtitle home-for-whom__subtitle">Организации любого типа получают вывоз макулатуры по заявке и бонусы за сданное сырьё.</p>
+    <div class="home-for-whom__inner hp-container">
+      <h2 class="hp-section-title home-for-whom__title">С кем работает «Зелёный счёт»</h2>
+      <p class="hp-subtitle home-for-whom__subtitle">
+        Учреждения сдают вторсырьё, компании вывозят, все видят прозрачный учёт веса и выплат.
+      </p>
 
       <div class="home-for-whom__grid">
         <article
@@ -12,11 +14,12 @@
           :class="{ 'hp-visible': visible }"
           :style="{ transitionDelay: visible ? `${i * 0.08}s` : '0s' }"
         >
-          <div class="home-for-whom__icon">{{ card.icon }}</div>
+          <div class="home-for-whom__icon-wrap">
+            <v-icon :icon="card.mdi" size="36" color="primary" />
+          </div>
           <h3 class="home-for-whom__card-title">{{ card.title }}</h3>
           <p class="home-for-whom__card-text">{{ card.pain }}</p>
           <p class="home-for-whom__card-solution">{{ card.solution }}</p>
-          <a href="#" class="home-for-whom__link" @click.prevent="$emit('scrollToContact')">Подробнее</a>
         </article>
       </div>
     </div>
@@ -30,16 +33,30 @@ const sectionRef = ref<HTMLElement | null>(null)
 const visible = ref(false)
 
 const cards = [
-  { title: 'Офисы', icon: '🏢', pain: 'Скопление бумаги и архива.', solution: 'Настроим регулярный вывоз и расчёт стоимости под ваш объём.' },
-  { title: 'Школы и детские сады', icon: '🏫', pain: 'Нужен раздельный сбор и экопросвещение.', solution: 'Подключим к программе и начислим баллы за макулатуру.' },
-  { title: 'Торговые центры', icon: '🛒', pain: 'Много картона от упаковки.', solution: 'Вывоз по графику, взвешивание и документы для отчётности.' },
-  { title: 'Склады', icon: '📦', pain: 'Крупные объёмы картона и бумаги.', solution: 'Гибкие лимиты и расчёт под ваши тоннажи.' },
+  {
+    title: 'Учреждения',
+    mdi: 'mdi-domain',
+    pain: 'Школы, офисы, магазины — накапливается макулатура и картон.',
+    solution: 'Регулярный вывоз, зелёные баллы, документы и личный кабинет.',
+  },
+  {
+    title: 'Компании (вывоз)',
+    mdi: 'mdi-truck',
+    pain: 'Хотите вывозить вторсырьё и подключать организации.',
+    solution: 'Заявки от учреждений, учёт вывозов и статистика по месяцам.',
+  },
+  {
+    title: 'Торговля и склады',
+    mdi: 'mdi-warehouse',
+    pain: 'Большие объёмы упаковки, нужен стабильный график.',
+    solution: 'Взвешивание на месте, прозрачный расчёт ₽/кг, закрывающие документы.',
+  },
 ]
 
 onMounted(() => {
   const obs = new IntersectionObserver(
     ([e]) => { if (e.isIntersecting) visible.value = true },
-    { threshold: 0.1 }
+    { threshold: 0.1 },
   )
   if (sectionRef.value) obs.observe(sectionRef.value)
 })
@@ -49,7 +66,7 @@ defineEmits<{ scrollToContact: [] }>()
 
 <style scoped lang="scss">
 .home-for-whom {
-  padding: clamp(3rem, 8vw, 5rem) 1.5rem;
+  padding: clamp(3rem, 8vw, 5rem) 0;
   background: var(--vuvoz-surface-muted);
   opacity: 0;
   transform: translateY(20px);
@@ -61,11 +78,6 @@ defineEmits<{ scrollToContact: [] }>()
   }
 }
 
-.home-for-whom__inner {
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
 .home-for-whom__title {
   text-align: center;
   margin: 0 0 0.5rem;
@@ -74,31 +86,40 @@ defineEmits<{ scrollToContact: [] }>()
 .home-for-whom__subtitle {
   text-align: center;
   margin: 0 0 2.5rem;
-  max-width: 560px;
+  max-width: 640px;
   margin-left: auto;
   margin-right: auto;
 }
 
 .home-for-whom__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
 }
 
 .home-for-whom__card {
-  background: var(--vuvoz-surface-elevated);
   padding: 1.75rem;
-  border: 1px solid var(--vuvoz-border);
+  background: var(--vuvoz-surface-elevated);
 }
 
-.home-for-whom__icon {
-  font-size: 2.5rem;
+.home-for-whom__icon-wrap {
+  width: 3.5rem;
+  height: 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: rgba(13, 148, 136, 0.1);
   margin-bottom: 1rem;
 }
 
 .home-for-whom__card-title {
-  font-size: 1.2rem;
   margin: 0 0 0.5rem;
+  font-size: 1.15rem;
 }
 
 .home-for-whom__card-text {
@@ -108,17 +129,9 @@ defineEmits<{ scrollToContact: [] }>()
 }
 
 .home-for-whom__card-solution {
-  font-size: 0.95rem;
-  color: var(--vuvoz-text);
-  margin: 0 0 1rem;
-  line-height: 1.5;
-}
-
-.home-for-whom__link {
   font-size: 0.9rem;
-  font-weight: 600;
   color: var(--vuvoz-primary);
-  text-decoration: none;
-  &:hover { text-decoration: underline; }
+  font-weight: 600;
+  margin: 0;
 }
 </style>

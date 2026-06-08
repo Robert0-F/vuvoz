@@ -48,6 +48,17 @@ class IsInstitutionUser(permissions.BasePermission):
         return getattr(request.user, 'role', None) == 'institution'
 
 
+class IsSupportUser(permissions.BasePermission):
+    """User must have role 'support'."""
+
+    message = "Only support users can perform this action."
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return getattr(request.user, 'role', None) == 'support'
+
+
 class IsOwnCompany(permissions.BasePermission):
     """Company can only access their own CompanyProfile; admin can access any."""
 
@@ -107,7 +118,7 @@ class IsInstitutionAccess(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        return getattr(request.user, 'role', None) in ('admin', 'company', 'institution')
+        return getattr(request.user, 'role', None) in ('admin', 'company', 'institution', 'support')
 
     def has_object_permission(self, request, view, obj):
         if getattr(request.user, 'role', None) == 'admin':
@@ -119,6 +130,8 @@ class IsInstitutionAccess(permissions.BasePermission):
             )
         if getattr(request.user, 'role', None) == 'institution':
             return obj.user == request.user
+        if getattr(request.user, 'role', None) == 'support':
+            return obj.support_user_id == request.user.id
         return False
 
 

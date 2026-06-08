@@ -5,6 +5,9 @@
         <v-col cols="12" sm="10" md="6" lg="4" class="login-page__col">
           <AppFadeIn direction="up" :delay="0.05">
             <v-card class="login-card" elevation="0">
+              <div class="login-card__logo-wrap">
+                <AppHeaderLogo :height-px="44" href="/" :use-router="true" />
+              </div>
               <v-card-title class="login-card__title">
                 Компания по вывозу макулатуры
               </v-card-title>
@@ -57,7 +60,31 @@
                 >
                   Войти
                 </v-btn>
-                <div class="login-card__home mt-3 text-center">
+
+                <p class="login-card__register-hint">Нет аккаунта?</p>
+                <v-btn
+                  type="button"
+                  variant="outlined"
+                  color="primary"
+                  block
+                  size="large"
+                  class="login-btn login-btn--register mb-3"
+                  @click="registrationDialog = true"
+                >
+                  Зарегистрироваться
+                </v-btn>
+
+                <v-alert
+                  v-if="registrationSuccess"
+                  type="success"
+                  density="compact"
+                  class="mb-3"
+                  variant="tonal"
+                >
+                  Заявка отправлена. Администратор свяжется с вами для создания доступа.
+                </v-alert>
+
+                <div class="login-card__home text-center">
                   <RouterLink to="/" class="login-card__home-link">
                     <v-icon icon="mdi-home-outline" size="20" class="mr-1" />
                     На главную
@@ -69,12 +96,19 @@
         </v-col>
       </v-row>
     </v-container>
+
+    <HomeRegistrationModal
+      v-model="registrationDialog"
+      @success="onRegistrationSuccess"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import AppFadeIn from '@/components/AppFadeIn.vue'
+import AppHeaderLogo from '@/components/AppHeaderLogo.vue'
+import HomeRegistrationModal from '@/components/home/HomeRegistrationModal.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
@@ -91,6 +125,13 @@ const loading = ref(false)
 const errorMessage = ref('')
 const errors = reactive<{ username?: string; password?: string }>({})
 const formRef = ref<{ validate: () => Promise<{ valid: boolean }> } | null>(null)
+const registrationDialog = ref(false)
+const registrationSuccess = ref(false)
+
+function onRegistrationSuccess() {
+  registrationSuccess.value = true
+  setTimeout(() => { registrationSuccess.value = false }, 6000)
+}
 
 async function onSubmit() {
   errorMessage.value = ''
@@ -115,6 +156,8 @@ async function onSubmit() {
       router.push(redirect || { name: 'CompanyDashboard' })
     } else if (userStore.role === 'institution') {
       router.push(redirect || { name: 'InstitutionDashboard' })
+    } else if (userStore.role === 'support') {
+      router.push(redirect || { name: 'SupportDashboard' })
     } else {
       router.push(redirect || { name: 'Login' })
     }
@@ -150,6 +193,13 @@ async function onSubmit() {
     padding-left: 0.25rem;
     padding-right: 0.25rem;
   }
+}
+
+.login-card__logo-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  max-width: 100%;
 }
 
 .login-card {
@@ -209,6 +259,13 @@ async function onSubmit() {
   }
 }
 
+.login-card__register-hint {
+  margin: 1.25rem 0 0.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--vuvoz-text-muted);
+}
+
 .login-card__home-link {
   display: inline-flex;
   align-items: center;
@@ -236,6 +293,9 @@ async function onSubmit() {
   }
   .login-btn {
     min-height: 48px !important;
+  }
+  .login-btn--register {
+    min-height: 44px !important;
   }
 }
 </style>

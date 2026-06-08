@@ -77,6 +77,13 @@
               required
             />
             <input
+              v-model="leadForm.email"
+              type="email"
+              class="home-calc__input"
+              placeholder="Email *"
+              required
+            />
+            <input
               v-model="leadForm.company"
               type="text"
               class="home-calc__input"
@@ -171,7 +178,7 @@ const estimatedPickups = computed(() => {
 })
 
 const leadModalOpen = ref(false)
-const leadForm = reactive({ name: '', phone: '', company: '' })
+const leadForm = reactive({ name: '', phone: '', company: '', email: '' })
 const leadSending = ref(false)
 const leadSuccess = ref(false)
 const leadError = ref(false)
@@ -192,11 +199,13 @@ async function submitLead() {
       institution_name: leadForm.company.trim() || 'Запрос с калькулятора',
       address: 'Запрос с калькулятора',
       phone: leadForm.phone.trim(),
+      email: leadForm.email.trim(),
     })
     leadSuccess.value = true
     leadForm.name = ''
     leadForm.phone = ''
     leadForm.company = ''
+    leadForm.email = ''
     setTimeout(() => {
       leadModalOpen.value = false
     }, 2000)

@@ -66,6 +66,15 @@
   box-shadow: var(--vuvoz-shadow-sm) !important;
 }
 
+// Logo 1000×180 in primary app bars (light pad so wide logo reads on teal)
+.app-dashboard-bar__logo {
+  margin-right: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  max-width: min(240px, 42vw);
+}
+
 // Chips
 .v-chip {
   border-radius: 9999px !important;

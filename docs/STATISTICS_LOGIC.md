@@ -90,9 +90,39 @@ python scripts/generate_stats_data.py
 
 ## API
 
+### Основной endpoint (админ-дашборд)
+
+**GET** `/api/analytics/dashboard/`
+
+Параметры:
+
+- `date_from`, `date_to` — период (по умолчанию последние 365 дней).
+- `basis` — `created` (по умолчанию) или `completed`.
+- `company_id`, `institution_id` — срез по компании / организации.
+- `institution_type`, `material_type` — дополнительные фильтры.
+
+Ключевые блоки ответа:
+
+| Блок | Содержимое |
+|------|------------|
+| `kpis` | Показатели периода; при фильтре сущности — `is_entity_filtered`, scoped `total_companies` / `total_institutions` |
+| `requests_insights` | `funnel`, `backlog` (очередь сейчас), `urgency_breakdown`, `completion_time_buckets`, `estimated_vs_actual`, `status_over_time` |
+| `public_pickup` | Заявки с главной страницы: KPI, статусы, материалы, динамика |
+| `materials`, `top_companies`, `top_organizations` | Объёмы и рейтинги |
+| `bonus_over_time`, `top_point_institutions`, `popular_products` | Программа лояльности |
+
+### Legacy endpoint
+
 **GET** `/api/stats/admin/?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&basis=created|completed`
 
-- `date_from`, `date_to` — обязательны (или подставляются значения по умолчанию на бэкенде).
-- `basis` — необязателен: `created` (по умолчанию) или `completed`.
+Упрощённый ответ: `materials`, `top_organizations`, `requests_by_status`, `weight_over_time`.
 
-Ответ: JSON с полями `materials`, `top_organizations`, `requests_by_status`, `weight_over_time`.
+## Интерфейс (вкладка «Статистика»)
+
+Пять тематических подвкладок:
+
+1. **Сводка** — KPI периода, тренд, завершённость, топ-3 материала.
+2. **Заявки** — воронка, очередь, срочность, SLA, статусы по времени.
+3. **Сырьё** — доли материалов, динамика кг, план/факт.
+4. **Партнёры** — компании и организации (drill-down по клику).
+5. **Сайт и бонусы** — `PublicPickupRequest` + баллы и каталог.

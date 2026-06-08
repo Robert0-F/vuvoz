@@ -2,7 +2,7 @@
   <div class="inst-dashboard">
     <header class="inst-dashboard__header">
       <div class="inst-dashboard__header-inner">
-        <div class="inst-dashboard__brand">Vuvoz</div>
+        <AppHeaderLogo class="inst-dashboard__brand" :height-px="36" href="/" />
         <nav class="inst-dashboard__nav inst-dashboard__nav--desktop">
           <button
             type="button"
@@ -27,6 +27,15 @@
             @click="mainTab = 'points'"
           >
             Баллы
+          </button>
+          <button
+            type="button"
+            class="inst-dashboard__tab inst-dashboard__tab--badge"
+            :class="{ 'inst-dashboard__tab--active': mainTab === 'support' }"
+            @click="mainTab = 'support'"
+          >
+            Техподдержка
+            <span v-if="supportUnreadCount" class="inst-dashboard__tab-badge">{{ supportUnreadCount }}</span>
           </button>
         </nav>
         <div class="inst-dashboard__actions">
@@ -87,6 +96,16 @@
       >
         <v-icon icon="mdi-leaf" size="24" />
         <span>Баллы</span>
+      </button>
+      <button
+        type="button"
+        class="inst-dashboard__bottom-tab"
+        :class="{ 'inst-dashboard__bottom-tab--active': mainTab === 'support' }"
+        @click="mainTab = 'support'"
+      >
+        <v-icon icon="mdi-lifebuoy" size="24" />
+        <span>Поддержка</span>
+        <span v-if="supportUnreadCount" class="inst-dashboard__bottom-badge">{{ supportUnreadCount }}</span>
       </button>
     </nav>
 
@@ -171,7 +190,7 @@
 
         <!-- Stats tab -->
         <template v-if="mainTab === 'stats'">
-          <InstitutionCharts :requests="requests" />
+          <InstitutionStatsPanel />
         </template>
 
         <!-- Points tab -->
@@ -191,19 +210,39 @@
 
           <div class="inst-dashboard__section">
             <h3 class="inst-dashboard__section-title">Каталог товаров</h3>
+            <div v-if="productCategories.length" class="inst-dashboard__product-tabs">
+              <button
+                type="button"
+                class="inst-dashboard__product-tab"
+                :class="{ 'inst-dashboard__product-tab--active': productCategoryFilter === 'all' }"
+                @click="productCategoryFilter = 'all'"
+              >
+                Все
+              </button>
+              <button
+                v-for="c in productCategories"
+                :key="c.id"
+                type="button"
+                class="inst-dashboard__product-tab"
+                :class="{ 'inst-dashboard__product-tab--active': productCategoryFilter === c.slug }"
+                @click="productCategoryFilter = c.slug"
+              >
+                {{ c.name }}
+              </button>
+            </div>
             <div v-if="loadingProducts" class="inst-dashboard__loading">
               <v-progress-circular indeterminate color="primary" size="40" />
             </div>
-            <div v-else-if="!products.length" class="inst-dashboard__empty">Товаров пока нет.</div>
+            <div v-else-if="!filteredProducts.length" class="inst-dashboard__empty">Товаров в этой категории пока нет.</div>
             <div v-else class="inst-dashboard__products">
               <article
-                v-for="p in products"
+                v-for="p in filteredProducts"
                 :key="p.id"
                 class="inst-product-card"
                 @click="addToOrder(p)"
               >
                 <div class="inst-product-card__img">
-                  <img v-if="productImageSrc(p)" :src="productImageSrc(p)" :alt="p.name" />
+                  <img v-if="resolveMediaUrl(p.image_url)" :src="resolveMediaUrl(p.image_url)" :alt="p.name" />
                   <v-icon v-else icon="mdi-image-outline" size="48" color="grey" />
                 </div>
                 <div class="inst-product-card__body">
@@ -223,6 +262,25 @@
                 <v-btn color="primary" size="small" @click="openOrderDialog">Оформить заказ</v-btn>
               </div>
             </div>
+          </div>
+        </template>
+
+        <template v-if="mainTab === 'support'">
+          <div class="inst-dashboard__section">
+            <SupportChatPanel
+              mode="institution"
+              :messages="supportMessages"
+              :loading="supportLoading"
+              :sending="supportSending"
+              :error="supportError"
+              :support-assigned="!!userStore.institutionProfile?.support_user"
+              :title="'Чат с технической поддержкой'"
+              :subtitle="supportSubtitle"
+              :current-user-id="userStore.user?.id ?? null"
+              placeholder="Опишите вопрос или проблему..."
+              @send="sendSupportMessage"
+              @mark-read="markSupportRead"
+            />
           </div>
         </template>
       </div>
@@ -292,7 +350,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
@@ -301,9 +359,12 @@ import { useInstitutionDashboardStore } from '@/stores/institutionDashboard'
 import InstitutionStatCard from '@/components/institution/InstitutionStatCard.vue'
 import InstitutionRequestForm from '@/components/institution/InstitutionRequestForm.vue'
 import InstitutionRequestGrid from '@/components/institution/InstitutionRequestGrid.vue'
-import InstitutionCharts from '@/components/institution/InstitutionCharts.vue'
+import InstitutionStatsPanel from '@/components/institution/InstitutionStatsPanel.vue'
+import SupportChatPanel from '@/components/support/SupportChatPanel.vue'
 import InstitutionNotifications from '@/components/institution/InstitutionNotifications.vue'
-import type { CollectionRequest, CurrentPrice, InstitutionProfile, Product as ProductType, PointsHistoryItem } from '@/types'
+import AppHeaderLogo from '@/components/AppHeaderLogo.vue'
+import type { CollectionRequest, CurrentPrice, InstitutionProfile, Product as ProductType, ProductCategory, SupportChatMessage } from '@/types'
+import { resolveMediaUrl } from '@/utils/mediaUrl'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -325,12 +386,25 @@ const submittingOrder = ref(false)
 const notifications = ref<{ id: number; title: string; message: string; read: boolean }[]>([])
 const unreadCount = ref(0)
 const products = ref<ProductType[]>([])
+const productCategories = ref<ProductCategory[]>([])
+const productCategoryFilter = ref('all')
 const loadingProducts = ref(false)
 const orderItems = ref<{ product_id: number; name: string; quantity: number; price: string }[]>([])
 const formRef = ref<{ validate: () => Promise<{ valid: boolean }> } | null>(null)
 const currentPrices = ref<CurrentPrice[]>([])
 const weightLimits = ref<{ min_kg: string; max_kg: string } | null>(null)
 const submitting = ref(false)
+const supportMessages = ref<SupportChatMessage[]>([])
+const supportLoading = ref(false)
+const supportError = ref('')
+const supportSending = ref(false)
+const supportPollTimer = ref<number | null>(null)
+
+const supportUnreadCount = computed(() => userStore.institutionProfile?.support_unread_count ?? 0)
+const supportSubtitle = computed(() => {
+  const u = userStore.institutionProfile?.support_username
+  return u ? `Специалист: ${u}` : undefined
+})
 
 const materialLines = ref<{ material_type: string; amount_kg: string }[]>([{ material_type: 'paper', amount_kg: '' }])
 
@@ -375,6 +449,11 @@ const estimatedValuePreview = computed(() => {
 const orderTotal = computed(() =>
   orderItems.value.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0).toFixed(2)
 )
+
+const filteredProducts = computed(() => {
+  if (productCategoryFilter.value === 'all') return products.value
+  return products.value.filter((p) => p.category_slug === productCategoryFilter.value)
+})
 
 const avatarText = computed(() => {
   const name = userStore.institutionProfile?.institution_name || userStore.user?.username || ''
@@ -449,16 +528,63 @@ async function submitRequest() {
   }
 }
 
-function productImageSrc(p: { image_url?: string | null; image?: string }): string {
-  const u = p.image_url || (p.image ? `/media/${(p.image as string).replace(/^\//, '')}` : '')
-  if (!u) return ''
-  if (u.startsWith('http')) return u
-  return window.location.origin + (u.startsWith('/') ? u : '/' + u)
-}
-
 function formatPointsDate(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+async function loadSupportMessages() {
+  const institutionId = userStore.institutionProfile?.id
+  if (!institutionId) return
+  supportLoading.value = true
+  supportError.value = ''
+  try {
+    const { data } = await api.get<SupportChatMessage[]>(`/support/chats/${institutionId}/`)
+    supportMessages.value = data
+  } catch {
+    supportMessages.value = []
+    supportError.value = 'Не удалось загрузить сообщения'
+  } finally {
+    supportLoading.value = false
+  }
+}
+
+async function sendSupportMessage(text: string) {
+  const institutionId = userStore.institutionProfile?.id
+  if (!institutionId) return
+  supportSending.value = true
+  supportError.value = ''
+  try {
+    await api.post(`/support/chats/${institutionId}/`, { message: text })
+    await loadSupportMessages()
+    await userStore.fetchMe()
+  } catch {
+    supportError.value = 'Не удалось отправить сообщение'
+  } finally {
+    supportSending.value = false
+  }
+}
+
+async function markSupportRead() {
+  const institutionId = userStore.institutionProfile?.id
+  if (!institutionId) return
+  await api.post(`/support/chats/${institutionId}/read/`)
+  await loadSupportMessages()
+  await userStore.fetchMe()
+}
+
+function stopSupportPolling() {
+  if (supportPollTimer.value) {
+    clearInterval(supportPollTimer.value)
+    supportPollTimer.value = null
+  }
+}
+
+function startSupportPolling() {
+  stopSupportPolling()
+  supportPollTimer.value = window.setInterval(() => {
+    loadSupportMessages().catch(() => undefined)
+  }, 7000)
 }
 
 function addToOrder(p: ProductType) {
@@ -596,10 +722,15 @@ function handleClickOutside(e: MouseEvent) {
 async function loadProducts() {
   loadingProducts.value = true
   try {
-    const { data } = await api.get<ProductType[]>('/products/')
-    products.value = data
+    const [prodRes, catRes] = await Promise.all([
+      api.get<ProductType[]>('/products/'),
+      api.get<ProductCategory[]>('/product-categories/'),
+    ])
+    products.value = prodRes.data
+    productCategories.value = catRes.data.filter((c) => c.is_active)
   } catch {
     products.value = []
+    productCategories.value = []
   } finally {
     loadingProducts.value = false
   }
@@ -615,6 +746,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
+  stopSupportPolling()
 })
 
 watch(mainTab, (tab) => {
@@ -623,7 +755,13 @@ watch(mainTab, (tab) => {
     loadProducts()
   }
   if (tab === 'stats') {
-    dashboardStore.fetchStats()
+    dashboardStore.fetchRequests()
+  }
+  if (tab === 'support') {
+    loadSupportMessages()
+    startSupportPolling()
+  } else {
+    stopSupportPolling()
   }
 })
 </script>
@@ -653,10 +791,7 @@ watch(mainTab, (tab) => {
 }
 
 .inst-dashboard__brand {
-  font-weight: 800;
-  font-size: 1.25rem;
-  color: var(--vuvoz-primary);
-  letter-spacing: -0.02em;
+  max-width: min(280px, 38vw);
 }
 
 .inst-dashboard__nav {
@@ -912,6 +1047,29 @@ watch(mainTab, (tab) => {
   color: var(--vuvoz-text);
 }
 
+.inst-dashboard__product-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.inst-dashboard__product-tab {
+  border: 1px solid var(--vuvoz-border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--vuvoz-text);
+  &--active {
+    background: var(--vuvoz-primary);
+    border-color: var(--vuvoz-primary);
+    color: #fff;
+  }
+}
+
 .inst-dashboard__points-summary {
   display: flex;
   align-items: center;
@@ -1131,5 +1289,41 @@ watch(mainTab, (tab) => {
     font-weight: 600;
     color: var(--vuvoz-text-muted);
   }
+}
+
+.inst-dashboard__tab--badge {
+  position: relative;
+}
+.inst-dashboard__tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.inst-dashboard__bottom-tab {
+  position: relative;
+}
+.inst-dashboard__bottom-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }
 </style>

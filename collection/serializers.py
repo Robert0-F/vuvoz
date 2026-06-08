@@ -5,6 +5,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
+    AuditLog,
     BonusConfig,
     CollectionRequest,
     CompanyProfile,
@@ -13,12 +14,18 @@ from .models import (
     InAppNotification,
     InstitutionProfile,
     Material,
+    PublicPickupRequest,
+    PublicPickupRequestLine,
+    CompanyRegistrationRequest,
     NewsArticle,
     PointsOrder,
     PointsOrderLine,
     PriceList,
     Product,
+    ProductCategory,
     RequestMaterialLine,
+    SupportChatMessage,
+    SupportConfig,
 )
 from .validators import (
     validate_email_format,
@@ -184,6 +191,16 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
     parent_company_contact_email = serializers.EmailField(
         source='parent_company.contact_email', read_only=True, default=''
     )
+    support_user = serializers.PrimaryKeyRelatedField(read_only=True)
+    support_username = serializers.CharField(source='support_user.username', read_only=True, default='')
+    support_unread_count = serializers.SerializerMethodField()
+
+    def get_support_unread_count(self, obj):
+        return SupportChatMessage.objects.filter(
+            institution=obj,
+            is_read=False,
+            sender__role=User.Role.SUPPORT,
+        ).count()
 
     class Meta:
         model = InstitutionProfile
@@ -193,6 +210,9 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
             'parent_company_name',
             'parent_company_contact_phone',
             'parent_company_contact_email',
+            'support_user',
+            'support_username',
+            'support_unread_count',
             'institution_name',
             'address',
             'contact_person',
@@ -333,11 +353,17 @@ class InstitutionUpdateSerializer(serializers.ModelSerializer):
         queryset=CompanyProfile.objects.all(),
         required=False,
     )
+    support_user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.Role.SUPPORT),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = InstitutionProfile
         fields = [
             'parent_company',
+            'support_user',
             'institution_name',
             'address',
             'contact_person',
@@ -383,9 +409,12 @@ class InstitutionUpdateSerializer(serializers.ModelSerializer):
             instance.user.set_password(password.strip())
             instance.user.save(update_fields=['password'])
         parent_company = validated_data.pop('parent_company', None)
+        support_user = validated_data.pop('support_user', serializers.empty)
         req = self.context.get('request')
         if parent_company is not None and req and getattr(req.user, 'role', None) == 'admin':
             instance.parent_company = parent_company
+        if support_user is not serializers.empty and req and getattr(req.user, 'role', None) == 'admin':
+            instance.support_user = support_user
         email = validated_data.get('email')
         if email is not None:
             instance.user.username = email.strip().lower()
@@ -576,6 +605,9 @@ class CompanyDashboardSerializer(serializers.Serializer):
         help_text='List of { material_type, material_type_display, weight_kg }',
     )
     requests_by_status = serializers.DictField(child=serializers.IntegerField())
+    selected_month = serializers.CharField(required=False)
+    month_start = serializers.CharField(required=False)
+    month_end = serializers.CharField(required=False)
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -625,13 +657,34 @@ class InstitutionStatsSerializer(serializers.Serializer):
     """Response format for /api/stats/institution/."""
 
     total_requests = serializers.IntegerField()
+    completed_count = serializers.IntegerField()
+    cancelled_count = serializers.IntegerField(required=False, default=0)
+    completion_rate_percent = serializers.FloatField(required=False, default=0)
     requests_by_status = serializers.DictField(child=serializers.IntegerField())
     total_weight_all_time = serializers.DecimalField(
         max_digits=12, decimal_places=2, coerce_to_string=False
     )
-    total_weight_this_month = serializers.DecimalField(
+    total_weight_period = serializers.DecimalField(
         max_digits=12, decimal_places=2, coerce_to_string=False
     )
+    total_earnings_period = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=False
+    )
+    avg_weight_per_request = serializers.FloatField(required=False, default=0)
+    bonus_balance = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=False, required=False, default=0
+    )
+    bonus_points_period = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=False, required=False, default=0
+    )
+    points_spent_period = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=False, required=False, default=0
+    )
+    period_start = serializers.DateField(allow_null=True)
+    period_end = serializers.DateField(allow_null=True)
+    material_breakdown = serializers.ListField(child=serializers.DictField())
+    monthly_series = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+    previous_period = serializers.DictField(required=False, default=dict)
 
 
 class AdminStatsSerializer(serializers.Serializer):
@@ -655,12 +708,291 @@ class AdminStatsSerializer(serializers.Serializer):
     )
 
 
+def _material_media_url(file_field):
+    if not file_field or not file_field.name:
+        return None
+    url = file_field.url
+    if url and not url.startswith('/'):
+        url = '/' + url.lstrip('/')
+    return url or None
+
+
 class MaterialSerializer(serializers.ModelSerializer):
     """CRUD for Material (admin). Extensible material types for prices and requests."""
 
+    image_url = serializers.SerializerMethodField()
+    icon_url = serializers.SerializerMethodField()
+    clear_image = serializers.BooleanField(write_only=True, required=False, default=False)
+    clear_icon_image = serializers.BooleanField(write_only=True, required=False, default=False)
+
     class Meta:
         model = Material
-        fields = ['id', 'name', 'code', 'is_active']
+        fields = [
+            'id',
+            'name',
+            'code',
+            'short_description',
+            'icon_image',
+            'icon_url',
+            'image',
+            'image_url',
+            'icon',
+            'sort_order',
+            'is_active',
+            'clear_image',
+            'clear_icon_image',
+        ]
+        read_only_fields = ['image_url', 'icon_url']
+        extra_kwargs = {
+            'icon_image': {'write_only': True},
+            'image': {'write_only': True},
+        }
+
+    def get_image_url(self, obj):
+        return _material_media_url(obj.image)
+
+    def get_icon_url(self, obj):
+        return _material_media_url(obj.icon_image)
+
+    def _coerce_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).lower() in ('1', 'true', 'yes', 'on')
+
+    def _apply_media_updates(self, instance, validated_data):
+        from .services.media_service import process_material_icon, process_material_photo
+
+        clear_image = self._coerce_bool(validated_data.pop('clear_image', False))
+        clear_icon_image = self._coerce_bool(validated_data.pop('clear_icon_image', False))
+        icon_upload = validated_data.pop('icon_image', serializers.empty)
+        image_upload = validated_data.pop('image', serializers.empty)
+
+        if clear_icon_image and instance.icon_image:
+            instance.icon_image.delete(save=False)
+            instance.icon_image = None
+        if icon_upload is not serializers.empty and icon_upload:
+            if instance.icon_image:
+                instance.icon_image.delete(save=False)
+            processed_icon = process_material_icon(icon_upload)
+            instance.icon_image.save(processed_icon.name, processed_icon, save=False)
+
+        if clear_image and instance.image:
+            instance.image.delete(save=False)
+            instance.image = None
+        if image_upload is not serializers.empty and image_upload:
+            if instance.image:
+                instance.image.delete(save=False)
+            processed = process_material_photo(image_upload)
+            instance.image.save(processed.name, processed, save=False)
+
+        return instance
+
+    def create(self, validated_data):
+        validated_data = dict(validated_data)
+        clear_image = validated_data.pop('clear_image', False)
+        clear_icon_image = validated_data.pop('clear_icon_image', False)
+        icon_upload = validated_data.pop('icon_image', None)
+        image_upload = validated_data.pop('image', None)
+        instance = Material.objects.create(**validated_data)
+        patch_data = {}
+        if icon_upload:
+            patch_data['icon_image'] = icon_upload
+        if image_upload:
+            patch_data['image'] = image_upload
+        if clear_image:
+            patch_data['clear_image'] = clear_image
+        if clear_icon_image:
+            patch_data['clear_icon_image'] = clear_icon_image
+        if patch_data:
+            self._apply_media_updates(instance, patch_data)
+            instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        validated_data = dict(validated_data)
+        instance = self._apply_media_updates(instance, validated_data)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+
+class PublicMaterialSerializer(serializers.Serializer):
+    """Public catalog: material with current price."""
+
+    id = serializers.IntegerField()
+    code = serializers.CharField()
+    name = serializers.CharField()
+    short_description = serializers.CharField()
+    icon = serializers.CharField()
+    icon_url = serializers.CharField(allow_null=True)
+    image_url = serializers.CharField(allow_null=True)
+    price_per_kg = serializers.DecimalField(max_digits=10, decimal_places=2)
+    sort_order = serializers.IntegerField()
+
+
+class PublicPickupLineItemSerializer(serializers.Serializer):
+    material_id = serializers.IntegerField()
+    weight_kg = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0)
+
+
+class PublicPickupRequestLineSerializer(serializers.ModelSerializer):
+    material_name = serializers.CharField(source='material.name', read_only=True)
+    material_code = serializers.CharField(source='material.code', read_only=True)
+
+    class Meta:
+        model = PublicPickupRequestLine
+        fields = [
+            'id',
+            'material',
+            'material_name',
+            'material_code',
+            'weight_kg',
+            'line_payout',
+        ]
+        read_only_fields = fields
+
+
+class PublicPickupRequestCreateSerializer(serializers.Serializer):
+    items = PublicPickupLineItemSerializer(many=True)
+    phone = serializers.CharField(max_length=50)
+    address = serializers.CharField()
+    preferred_date = serializers.DateField()
+    contact_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError('Добавьте хотя бы один вид сырья.')
+        material_ids = [item['material_id'] for item in value]
+        if len(material_ids) != len(set(material_ids)):
+            raise serializers.ValidationError('Один материал нельзя указать дважды.')
+        return value
+
+    def validate_preferred_date(self, value):
+        from django.utils import timezone
+
+        if value < timezone.now().date():
+            raise serializers.ValidationError('Дата вывоза не может быть в прошлом.')
+        return value
+
+    def validate(self, attrs):
+        from .models import RequestWeightLimit
+
+        items = attrs.get('items') or []
+        min_kg, max_kg = RequestWeightLimit.get_limits()
+        for item in items:
+            material = Material.objects.filter(pk=item['material_id'], is_active=True).first()
+            if not material:
+                raise serializers.ValidationError({'items': 'Материал не найден или неактивен.'})
+            price = PriceList.objects.filter(material=material, is_active=True).first()
+            if not price:
+                raise serializers.ValidationError(
+                    {'items': f'Для материала «{material.name}» не задана цена.'}
+                )
+            weight_kg = item['weight_kg']
+            if weight_kg < min_kg or weight_kg > max_kg:
+                raise serializers.ValidationError(
+                    {'items': f'Вес для «{material.name}» должен быть от {min_kg} до {max_kg} кг.'}
+                )
+        return attrs
+
+    def _resolve_line(self, material_id, weight_kg):
+        from decimal import Decimal
+
+        material = Material.objects.filter(pk=material_id, is_active=True).first()
+        price = PriceList.objects.filter(material=material, is_active=True).first()
+        line_payout = (weight_kg * price.price_per_kg).quantize(Decimal('0.01'))
+        return material, weight_kg, line_payout
+
+    def create(self, validated_data):
+        from decimal import Decimal
+
+        items_data = validated_data.pop('items')
+        resolved = [self._resolve_line(i['material_id'], i['weight_kg']) for i in items_data]
+        total_payout = sum((r[2] for r in resolved), Decimal('0')).quantize(Decimal('0.01'))
+        request = PublicPickupRequest.objects.create(
+            estimated_payout=total_payout,
+            phone=validated_data['phone'].strip(),
+            address=validated_data['address'].strip(),
+            preferred_date=validated_data['preferred_date'],
+            contact_name=(validated_data.get('contact_name') or '').strip(),
+        )
+        PublicPickupRequestLine.objects.bulk_create([
+            PublicPickupRequestLine(
+                request=request,
+                material=material,
+                weight_kg=weight_kg,
+                line_payout=line_payout,
+            )
+            for material, weight_kg, line_payout in resolved
+        ])
+        return request
+
+
+class PublicPickupRequestAdminSerializer(serializers.ModelSerializer):
+    lines = PublicPickupRequestLineSerializer(many=True, read_only=True)
+    materials_summary = serializers.SerializerMethodField()
+    total_weight_kg = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = PublicPickupRequest
+        fields = [
+            'id',
+            'contact_name',
+            'phone',
+            'address',
+            'preferred_date',
+            'lines',
+            'materials_summary',
+            'total_weight_kg',
+            'estimated_payout',
+            'status',
+            'status_display',
+            'admin_notes',
+            'created_at',
+        ]
+        read_only_fields = [
+            'contact_name',
+            'phone',
+            'address',
+            'preferred_date',
+            'lines',
+            'materials_summary',
+            'total_weight_kg',
+            'estimated_payout',
+            'created_at',
+            'status_display',
+        ]
+
+    def get_materials_summary(self, obj):
+        parts = []
+        for line in obj.lines.all():
+            parts.append(f'{line.material.name} {line.weight_kg} кг')
+        return ', '.join(parts) if parts else '—'
+
+    def get_total_weight_kg(self, obj):
+        from decimal import Decimal
+        total = sum((line.weight_kg for line in obj.lines.all()), Decimal('0'))
+        return str(total)
+
+
+class CompanyRegistrationRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompanyRegistrationRequest
+        fields = [
+            'id',
+            'company_name',
+            'contact_name',
+            'phone',
+            'email',
+            'address',
+            'comment',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
 
 
 class PriceListSerializer(serializers.ModelSerializer):
@@ -808,30 +1140,77 @@ class InstitutionBonusSerializer(serializers.ModelSerializer):
         ]
 
 
+class ProductCategorySerializer(serializers.ModelSerializer):
+    product_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductCategory
+        fields = ['id', 'name', 'slug', 'sort_order', 'is_active', 'product_count']
+
+    def get_product_count(self, obj):
+        return getattr(obj, 'product_count', obj.products.filter(is_active=True).count())
+
+
+class ProductCategoryWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductCategory
+        fields = ['id', 'name', 'slug', 'sort_order', 'is_active']
+        extra_kwargs = {'slug': {'required': False, 'allow_blank': True}}
+
+    def validate_slug(self, value):
+        from django.utils.text import slugify
+        if not value:
+            return value
+        slug = slugify(value, allow_unicode=True)
+        if not slug:
+            raise serializers.ValidationError('Некорректный slug.')
+        return slug
+
+    def validate(self, attrs):
+        from django.utils.text import slugify
+        if not attrs.get('slug') and attrs.get('name'):
+            attrs['slug'] = slugify(attrs['name'], allow_unicode=True)
+        if not attrs.get('slug'):
+            raise serializers.ValidationError({'slug': 'Укажите slug или название.'})
+        return attrs
+
+
 class ProductSerializer(serializers.ModelSerializer):
     """Product for points catalog. Admin: CRUD. Institution: read-only list."""
     image_url = serializers.SerializerMethodField()
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_slug = serializers.CharField(source='category.slug', read_only=True)
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'description', 'image', 'image_url', 'price_in_points', 'is_active', 'created_at']
-        read_only_fields = ['image_url']
+        fields = [
+            'id', 'category', 'category_name', 'category_slug',
+            'name', 'description', 'image', 'image_url',
+            'price_in_points', 'is_active', 'created_at',
+        ]
+        read_only_fields = ['image_url', 'category_name', 'category_slug']
+        extra_kwargs = {
+            'image': {'write_only': True},
+        }
 
     def get_image_url(self, obj):
         if not obj.image or not obj.image.name:
             return None
-        from django.conf import settings
-        base = getattr(settings, 'BASE_URL', None)
         url = obj.image.url
-        # Ensure path is absolute so build_absolute_uri works (MEDIA_URL should be '/media/').
-        if url and not url.startswith('/') and not url.startswith('http'):
-            url = '/' + url
-        if base:
-            return f"{base.rstrip('/')}/{url.lstrip('/')}"
-        request = self.context.get('request')
-        if request and url:
-            return request.build_absolute_uri(url)
+        if url and not url.startswith('/'):
+            url = '/' + url.lstrip('/')
         return url or None
+
+
+class PublicProductSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    description = serializers.CharField()
+    price_in_points = serializers.DecimalField(max_digits=10, decimal_places=2)
+    image_url = serializers.CharField(allow_null=True)
+    category_id = serializers.IntegerField(allow_null=True)
+    category_name = serializers.CharField(allow_null=True)
+    category_slug = serializers.CharField(allow_null=True)
 
 
 class PointsOrderLineSerializer(serializers.ModelSerializer):
@@ -889,8 +1268,125 @@ class PointsOrderCreateSerializer(serializers.Serializer):
 
 class InstitutionRegistrationRequestSerializer(serializers.ModelSerializer):
     """Public submission from homepage; admin lists these."""
+    email = serializers.EmailField(required=True)
 
     class Meta:
         model = InstitutionRegistrationRequest
-        fields = ['id', 'first_name', 'patronymic', 'institution_name', 'address', 'phone', 'created_at']
+        fields = ['id', 'first_name', 'patronymic', 'institution_name', 'address', 'phone', 'email', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    actor_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AuditLog
+        fields = [
+            'id',
+            'created_at',
+            'category',
+            'action_type',
+            'actor_role',
+            'actor_username',
+            'target_model',
+            'target_id',
+            'short_summary',
+            'ip_address',
+        ]
+
+    def get_actor_username(self, obj):
+        if obj.actor:
+            return obj.actor.username
+        return ''
+
+
+class SupportConfigSerializer(serializers.ModelSerializer):
+    support_username = serializers.CharField(source='support_user.username', read_only=True, default='')
+    support_email = serializers.EmailField(source='support_user.email', read_only=True, default='')
+    institutions_assigned = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportConfig
+        fields = ['id', 'support_user', 'support_username', 'support_email', 'institutions_assigned']
+
+    def get_institutions_assigned(self, obj):
+        if not obj.support_user_id:
+            return 0
+        return InstitutionProfile.objects.filter(support_user_id=obj.support_user_id).count()
+
+
+class SupportUserCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(min_length=6, max_length=128, write_only=True, required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        value = validate_email_format(value)
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError('Пользователь с таким email уже существует.')
+        if User.objects.filter(role=User.Role.SUPPORT).exists():
+            raise serializers.ValidationError('Аккаунт техподдержки уже создан. Можно только один.')
+        return value.lower()
+
+    def create(self, validated_data):
+        import secrets
+        email = validated_data['email']
+        password = (validated_data.get('password') or '').strip() or secrets.token_urlsafe(10)
+        user = User.objects.create_user(
+            username=email,
+            email=email,
+            password=password,
+            role=User.Role.SUPPORT,
+        )
+        config = SupportConfig.objects.first()
+        if not config:
+            config = SupportConfig.objects.create()
+        config.support_user = user
+        config.save(update_fields=['support_user'])
+        config.assign_to_all_institutions()
+        return user
+
+
+class SupportUserListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'is_active', 'date_joined']
+
+
+class SupportAssignedInstitutionSerializer(serializers.ModelSerializer):
+    unread_count = serializers.IntegerField(read_only=True, default=0)
+    last_message_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    last_message_preview = serializers.CharField(read_only=True, allow_blank=True, default='')
+
+    class Meta:
+        model = InstitutionProfile
+        fields = [
+            'id', 'institution_name', 'address', 'contact_person', 'phone', 'email',
+            'unread_count', 'last_message_at', 'last_message_preview',
+        ]
+
+
+class SupportChatMessageSerializer(serializers.ModelSerializer):
+    sender_username = serializers.CharField(source='sender.username', read_only=True)
+    sender_role = serializers.CharField(source='sender.role', read_only=True)
+    is_mine = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportChatMessage
+        fields = [
+            'id',
+            'institution',
+            'sender',
+            'sender_username',
+            'sender_role',
+            'message',
+            'is_read',
+            'is_mine',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'sender', 'sender_username', 'sender_role', 'is_read', 'is_mine', 'created_at']
+
+    def get_is_mine(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.sender_id == request.user.id

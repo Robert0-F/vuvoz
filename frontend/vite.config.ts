@@ -1,9 +1,14 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+import path from 'node:path'
+
+const projectRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 
 export default defineConfig(({ mode }) => ({
   plugins: [vue()],
+  // Read VITE_* from root .env (same file as Django)
+  envDir: projectRoot,
   base: mode === 'production' ? '/static/' : '/',
   resolve: {
     alias: {

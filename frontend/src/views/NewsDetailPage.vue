@@ -1,7 +1,8 @@
 <template>
   <div class="news-detail-page">
-    <v-app-bar color="primary" density="compact" elevation="0" class="px-4 py-2">
+    <v-app-bar color="primary" density="compact" elevation="0" class="px-4 py-2 app-dashboard-bar">
       <v-btn variant="text" icon="mdi-arrow-left" @click="goBack" />
+      <AppHeaderLogo :height-px="30" href="/" class="app-dashboard-bar__logo" />
       <v-app-bar-title class="pl-2">Новости</v-app-bar-title>
       <v-spacer />
       <v-btn variant="elevated" color="secondary" class="vuvoz-transition" @click="goToLogin">
@@ -52,6 +53,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import AppFadeIn from '@/components/AppFadeIn.vue'
+import AppHeaderLogo from '@/components/AppHeaderLogo.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api/axios'
 import { useAuthStore } from '@/stores/auth'
@@ -110,6 +112,7 @@ async function goToLogin() {
     if (role === 'admin') router.push({ name: 'AdminDashboard' })
     else if (role === 'company') router.push({ name: 'CompanyDashboard' })
     else if (role === 'institution') router.push({ name: 'InstitutionDashboard' })
+    else if (role === 'support') router.push({ name: 'SupportDashboard' })
     else router.push({ name: 'Login' })
   } else {
     router.push({ name: 'Login' })

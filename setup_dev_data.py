@@ -24,11 +24,13 @@ from collection.models import CompanyProfile, InstitutionProfile, CollectionRequ
 User = get_user_model()
 
 ADMIN_EMAIL = 'admin@test.com'
-ADMIN_PASSWORD = 'test123'
 COMPANY_EMAIL = 'company@test.com'
-COMPANY_PASSWORD = 'test123'
+
 
 def run():
+    from scripts.dev_env import get_dev_test_password
+
+    dev_password = get_dev_test_password()
     # Administrator
     admin_user, admin_created = User.objects.get_or_create(
         username=ADMIN_EMAIL,
@@ -39,7 +41,7 @@ def run():
         },
     )
     if admin_created:
-        admin_user.set_password(ADMIN_PASSWORD)
+        admin_user.set_password(dev_password)
         admin_user.save()
         print(f"Created administrator: {ADMIN_EMAIL}")
     else:
@@ -60,7 +62,7 @@ def run():
         },
     )
     if created:
-        company_user.set_password(COMPANY_PASSWORD)
+        company_user.set_password(dev_password)
         company_user.save()
         print(f"Created company user: {COMPANY_EMAIL}")
     else:
@@ -96,7 +98,7 @@ def run():
             },
         )
         if u_created:
-            user.set_password('test123')
+            user.set_password(dev_password)
             user.save()
             print(f"Created institution user: {data['email']}")
 
@@ -147,9 +149,9 @@ def run():
         print("Created 10 sample collection requests.")
 
     print("\nDone. Test data logins:")
-    print(f"  Administrator: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
-    print(f"  Company:       {COMPANY_EMAIL} / {COMPANY_PASSWORD}")
-    print(f"  Institution:   school1@test.com / test123 (or school2@test.com, office@test.com)")
+    print(f"  Administrator: {ADMIN_EMAIL} / {dev_password}")
+    print(f"  Company:       {COMPANY_EMAIL} / {dev_password}")
+    print(f"  Institution:   school1@test.com / {dev_password} (or school2@test.com, office@test.com)")
 
 
 if __name__ == '__main__':

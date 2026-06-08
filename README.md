@@ -16,11 +16,36 @@
 - **Backend**: Django 4.2+, DRF, JWT (Simple JWT), PostgreSQL / SQLite
 - **Frontend**: Vue 3, Vuetify 3, TypeScript, Vite
 
+## Секреты и `.env`
+
+Все пароли и ключи — **только** в файле `.env` в корне проекта (не коммитится).
+
+```bash
+cp .env.example .env
+# Заполните CHANGE_ME: DJANGO_SECRET_KEY, DATABASE_URL, POSTGRES_PASSWORD, SMTP и домены
+chmod 600 .env   # на Linux-сервере
+python scripts/check_env.py   # проверка перед production
+```
+
+- Шаблон: [`.env.example`](.env.example) — в git, без реальных секретов.
+- Django и Vite (переменные `VITE_*`) читают **один** корневой `.env`.
+- Пароли пользователей сайта (admin, school01…) в `.env` не хранятся — только в БД.
+- Если SSH-ключ когда-либо попадал в git — сгенерируйте новый на сервере.
+- Пример SQL для PostgreSQL без пароля: [`robert.md.example`](robert.md.example).
+
+## Демо-данные и развёртывание на сервере
+
+Полная инструкция: очистка БД, суперпользователь, загрузка тестовых данных (2 компании, 12 учреждений, год истории), деплой — **[README_SETUP.md](README_SETUP.md)**.  
+Логины тестовых пользователей (пароль `test123`): **[docs/DEMO_USERS.md](docs/DEMO_USERS.md)**.
+
 ## Быстрый старт
 
 ### Локальная разработка
 
 ```bash
+cp .env.example .env
+# Для dev: DJANGO_DEBUG=True, DEV_TEST_PASSWORD=test123 (опционально)
+
 # Backend
 pip install -r requirements.txt
 python manage.py migrate
@@ -35,6 +60,25 @@ cd frontend && npm install && npm run dev
 
 Если Vue не подключается к Django (страницы не загружаются, запросы не проходят) — см. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
+### Локальная разработка в Docker + PostgreSQL
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+docker compose exec backend python manage.py migrate --noinput
+docker compose exec backend python manage.py createsuperuser
+```
+
+- Приложение: `http://localhost`
+- PostgreSQL: контейнер `db` (данные в `postgres_data`)
+- SMTP для разработки: Mailpit `http://localhost:8025` (контейнер `mailpit`)
+
+Остановка:
+
+```bash
+docker compose down
+```
+
 ### Тестовые данные
 
 **Минимальный набор** (админ + одна компания + одно учреждение):
@@ -42,12 +86,12 @@ cd frontend && npm install && npm run dev
 ```bash
 python -c "exec(open('setup_dev_data.py').read()); run()"
 ```
-Robert@test.com
-Test123456
 
-- Администратор: `admin@test.com` / `test123`
-- Компания: `company@test.com` / `test123`
-- Учреждение: `school1@test.com` / `test123`
+Пароль тестовых пользователей — из `.env` (`DEV_TEST_PASSWORD`, по умолчанию `test123`). Скрипты не запускаются при `DJANGO_DEBUG=False`.
+
+- Администратор: `admin@test.com`
+- Компания: `company@test.com`
+- Учреждение: `school1@test.com` (и др.)
 
 **Полный набор** (2 компании, 20 организаций с русскими названиями, 40 заявок — новые и завершённые). Запуск из корня проекта:
 

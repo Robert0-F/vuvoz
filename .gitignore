@@ -1,5 +1,6 @@
 # Database
 db.sqlite3
+test_db.sqlite3
 *.sqlite3
 backups/
 
@@ -26,6 +27,18 @@ build/
 .env
 .env.local
 .env.*.local
+
+# SSH / private keys (never commit)
+*.pem
+id_rsa
+id_ed25519
+id_*
+frontend/k
+frontend/k.pub
+
+# Local notes (keep *.example in repo)
+robert.md
+CLIENT_MEETING_PREP.md
 
 # IDE
 .idea/

@@ -12,6 +12,18 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      path: '/materials',
+      name: 'MaterialsCatalog',
+      component: () => import('@/views/MaterialsCatalogPage.vue'),
+      meta: { public: true },
+    },
+    {
+      path: '/products',
+      name: 'ProductsCatalog',
+      component: () => import('@/views/ProductsCatalogPage.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/news/:id',
       name: 'NewsDetail',
       component: () => import('@/views/NewsDetailPage.vue'),
@@ -42,6 +54,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' },
     },
     {
+      path: '/support',
+      name: 'SupportDashboard',
+      component: () => import('@/views/SupportDashboard.vue'),
+      meta: { requiresAuth: true, role: 'support' },
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/',
     },
@@ -64,6 +82,7 @@ router.beforeEach(async (to, _from, next) => {
       if (role === 'admin') next({ name: 'AdminDashboard' })
       else if (role === 'company') next({ name: 'CompanyDashboard' })
       else if (role === 'institution') next({ name: 'InstitutionDashboard' })
+      else if (role === 'support') next({ name: 'SupportDashboard' })
       else next()
     } else {
       next()
@@ -90,6 +109,7 @@ router.beforeEach(async (to, _from, next) => {
       if (userStore.role === 'admin') next({ name: 'AdminDashboard' })
       else if (userStore.role === 'company') next({ name: 'CompanyDashboard' })
       else if (userStore.role === 'institution') next({ name: 'InstitutionDashboard' })
+      else if (userStore.role === 'support') next({ name: 'SupportDashboard' })
       else next({ name: 'Login' })
       return
     }

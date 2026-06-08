@@ -215,6 +215,67 @@ Query params: `start_date`, `end_date` (YYYY-MM-DD).
 
 ---
 
+### Аудит действий (Admin)
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/audit-logs/` | Admin | Список логов с фильтрами и пагинацией |
+| GET | `/api/audit-logs/export/?export_format=csv|txt` | Admin | Экспорт логов по фильтрам |
+
+Query params для `/api/audit-logs/`:
+- `page` (default `1`)
+- `page_size` (default `25`, max `200`)
+- `category` (`info` / `warning` / `critical`)
+- `action_type`
+- `actor_role` (`admin` / `company` / `institution`)
+- `target_model`
+- `date_from`, `date_to` (`YYYY-MM-DD`)
+- `search` (по summary/action/model/id/username)
+
+Response 200:
+```json
+{
+  "count": 123,
+  "page": 1,
+  "page_size": 25,
+  "results": [
+    {
+      "id": 10,
+      "created_at": "2026-04-01T12:00:00Z",
+      "category": "warning",
+      "action_type": "reset_password",
+      "actor_role": "company",
+      "actor_username": "company@test.com",
+      "target_model": "InstitutionProfile",
+      "target_id": "5",
+      "short_summary": "Institution password reset by company/admin",
+      "ip_address": "127.0.0.1"
+    }
+  ]
+}
+```
+
+---
+
+### Информация о БД (Admin)
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/database-info/` | Admin | Показывает тип текущей БД (sqlite/postgresql), engine, name, host, port |
+
+Response 200:
+```json
+{
+  "db_type": "postgresql",
+  "engine": "django.db.backends.postgresql",
+  "name": "vuvoz",
+  "host": "db",
+  "port": "5432"
+}
+```
+
+---
+
 ### Уведомления
 
 | Метод | URL | Доступ | Описание |
@@ -270,6 +331,45 @@ Query params: `start_date`, `end_date` (YYYY-MM-DD).
 
 ---
 
+### Техподдержка (админ)
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/support-config/` | Admin | Текущий глобальный специалист и число привязанных учреждений |
+| PATCH | `/api/support-config/` | Admin | Назначить специалиста на все учреждения (body: `{ "support_user": <id> }`) |
+| GET | `/api/support-users/` | Admin | Список аккаунтов техподдержки (в системе допускается один) |
+| POST | `/api/support-users/` | Admin | Создать аккаунт support (body: `{ "email": "...", "password": "..." }`; пароль опционален — сгенерируется) |
+
+Response `GET /api/support-config/`:
+```json
+{
+  "id": 1,
+  "support_user": 5,
+  "support_username": "support@example.com",
+  "support_email": "support@example.com",
+  "institutions_assigned": 12
+}
+```
+
+При создании support-пользователя или PATCH конфига все `InstitutionProfile.support_user` обновляются массово. Новые учреждения получают специалиста автоматически.
+
+---
+
+### Чат техподдержки
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/support/institutions/` | Support | Список учреждений с `unread_count`, `last_message_at`, `last_message_preview` |
+| GET | `/api/support/chats/<institution_id>/` | Support / Institution | История сообщений. Query: `?limit=50` (макс. 200), `?before_id=<id>` — пагинация |
+| POST | `/api/support/chats/<institution_id>/` | Support / Institution | Отправить сообщение: `{ "message": "текст" }` |
+| POST | `/api/support/chats/<institution_id>/read/` | Support / Institution | Отметить входящие сообщения прочитанными |
+
+Сообщение в ответе: `id`, `institution`, `sender`, `sender_username`, `sender_role`, `message`, `is_read`, `is_mine`, `created_at`.
+
+Для организации в `GET /api/me/` в профиле доступны `support_user`, `support_username`, `support_unread_count` (непрочитанные ответы поддержки).
+
+---
+
 ### Зелёные баллы (организация)
 
 | Метод | URL | Доступ | Описание |
@@ -297,13 +397,108 @@ Query params: `start_date`, `end_date` (YYYY-MM-DD).
 
 | Метод | URL | Доступ | Описание |
 |-------|-----|--------|----------|
-| GET | `/api/stats/admin/` | Admin | Сводка: объём по типам материалов, топ организаций, заявки по статусам, динамика по периодам. Параметры: `date_from`, `date_to` (YYYY-MM-DD), `basis` = `created` (по дате создания заявки) или `completed` (по дате завершения). По умолчанию период — последние 365 дней. Подробнее: [docs/STATISTICS_LOGIC.md](docs/STATISTICS_LOGIC.md). |
+| GET | `/api/stats/admin/` | Admin | Упрощённая сводка (legacy): материалы, топ организаций, статусы, динамика. |
+| GET | `/api/analytics/dashboard/` | Admin | Полная аналитика для вкладки «Статистика». Параметры: `date_from`, `date_to`, `basis` (`created` \| `completed`), `company_id`, `institution_id`, `institution_type`, `material_type`. Ответ: `kpis`, `materials`, `requests_insights` (воронка, очередь, SLA, срочность), `public_pickup` (заявки с сайта), бонусы, топы. Подробнее: [docs/STATISTICS_LOGIC.md](docs/STATISTICS_LOGIC.md). |
+
+---
+
+### Публичный каталог материалов и заявки на вывоз (главная)
+
+Без JWT. Цены берутся из активного `PriceList` для каждого активного `Material`.
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| GET | `/api/public/materials/` | Public | Список материалов с ценой за кг, фото, описанием, порядком сортировки |
+| GET | `/api/public/weight-limits/` | Public | Минимальный и максимальный вес заявки (кг) |
+| POST | `/api/public/pickup-requests/` | Public | Создать заявку на вывоз с главной (калькулятор) |
+| GET | `/api/public/pickup-requests/` | Admin | Список заявок на вывоз |
+| PATCH | `/api/public/pickup-requests/{id}/` | Admin | Статус и заметки администратора |
+
+**GET** `/api/public/materials/` — Response 200:
+```json
+[
+  {
+    "id": 1,
+    "code": "cardboard",
+    "name": "Картон",
+    "short_description": "Гофрокартон",
+    "icon": "package-variant",
+    "image_url": "/media/materials/cardboard.jpg",
+    "price_per_kg": "3.50",
+    "sort_order": 1
+  }
+]
+```
+
+**GET** `/api/public/weight-limits/` — Response 200:
+```json
+{
+  "min_kg": "50.00",
+  "max_kg": "5000.00"
+}
+```
+
+**POST** `/api/public/pickup-requests/` — Request (несколько видов сырья):
+```json
+{
+  "items": [
+    { "material_id": 1, "weight_kg": "100" },
+    { "material_id": 2, "weight_kg": "50" }
+  ],
+  "phone": "+79991234567",
+  "address": "г. Москва, ул. Примерная, 1",
+  "preferred_date": "2026-05-21",
+  "contact_name": "Иван (опционально)"
+}
+```
+
+Response 201 — заявка с `lines[]`, `materials_summary`, `total_weight_kg`, `estimated_payout` (сумма по строкам), `status` = `new`.
+
+Ошибки валидации: материал без цены, вес вне лимитов, дата в прошлом — 400.
+
+**PATCH** `/api/public/pickup-requests/{id}/` (Admin) — Request (частично):
+```json
+{
+  "status": "contacted",
+  "admin_notes": "Перезвонили, вывоз в пятницу"
+}
+```
+
+Статусы: `new`, `contacted`, `done`, `cancelled`.
+
+**Материалы (админ)** — `POST`/`PATCH` `/api/materials/` поддерживают поля `short_description`, `icon`, `sort_order`, загрузку `image` (multipart/form-data).
+
+### Регистрация с главной
+
+| Метод | URL | Доступ | Описание |
+|-------|-----|--------|----------|
+| POST | `/api/registration-requests/` | Public | Заявка учреждения (как раньше) |
+| GET | `/api/registration-requests/` | Admin | Список |
+| POST | `/api/company-registration-requests/` | Public | Заявка компании на вывоз |
+| GET | `/api/company-registration-requests/` | Admin | Список |
+
+**POST** `/api/company-registration-requests/`:
+```json
+{
+  "company_name": "ООО Вывоз",
+  "contact_name": "Иван",
+  "phone": "+79991234567",
+  "email": "info@example.com",
+  "address": "Москва",
+  "comment": "3 машины"
+}
+```
+
+### Статистика с фильтром месяца
+
+- **GET** `/api/stats/institution/?month=2026-05` или `start_date` + `end_date` — KPI за период, `material_breakdown`.
+- **GET** `/api/stats/company/dashboard/?month=2026-05` — KPI завершённых вывозов за выбранный календарный месяц.
 
 ---
 
 ## Rate limiting
 
-По умолчанию ограничения не заданы. Для production рекомендуется настроить throttling (например, через `DEFAULT_THROTTLE_CLASSES` в DRF).
+Публичные формы (`POST` pickup, registration) ограничены **30 запросов/час** с одного IP (`public_form` в `DEFAULT_THROTTLE_RATES`). При превышении — HTTP 429.
 
 ---
 

@@ -37,20 +37,15 @@
             <span>{{ formatDateTime(request.created_at) }}</span>
           </div>
           <template v-if="request.status === 'accepted'">
+            <div class="request-detail__row">
+              <span class="request-detail__label">Дата вывоза</span>
+              <span>{{ request.actual_collection_date ? formatDate(request.actual_collection_date) : 'не назначена' }}</span>
+            </div>
             <div class="request-detail__dates-edit mt-3">
-              <div class="text-caption text-medium-emphasis mb-2">Даты вывоза (можно изменить)</div>
-              <v-text-field
-                v-model="editEstimatedDate"
-                label="Предполагаемая дата"
-                type="date"
-                variant="outlined"
-                density="compact"
-                hide-details
-                class="mb-2"
-              />
+              <div class="text-caption text-medium-emphasis mb-2">Назначить или изменить дату вывоза</div>
               <v-text-field
                 v-model="editActualDate"
-                label="Фактическая дата вывоза"
+                label="Дата вывоза"
                 type="date"
                 variant="outlined"
                 density="compact"
@@ -58,8 +53,21 @@
                 class="mb-2"
               />
               <v-btn size="small" color="primary" :loading="savingDates" @click="saveDates">
-                Сохранить даты
+                Сохранить дату
               </v-btn>
+            </div>
+          </template>
+          <template v-if="request.status === 'pending_confirmation'">
+            <div class="request-detail__row">
+              <span class="request-detail__label">Факт. вес (кг)</span>
+              <span>{{ request.actual_amount ?? '—' }}</span>
+            </div>
+            <div class="request-detail__row">
+              <span class="request-detail__label">Факт. стоимость</span>
+              <span>{{ request.actual_value != null ? `${request.actual_value} руб.` : '—' }}</span>
+            </div>
+            <div class="request-detail__row text-medium-emphasis">
+              <span>Ожидает подтверждения учреждением</span>
             </div>
           </template>
           <template v-if="request.status === 'completed'">
@@ -90,6 +98,10 @@
           <div v-if="request.status !== 'new'" class="request-detail__timeline-item">
             <v-icon icon="mdi-circle-small" size="20" color="info" />
             <span>Принята</span>
+          </div>
+          <div v-if="request.status === 'pending_confirmation'" class="request-detail__timeline-item">
+            <v-icon icon="mdi-circle-small" size="20" color="warning" />
+            <span>Ожидает подтверждения учреждения</span>
           </div>
           <div v-if="request.status === 'completed'" class="request-detail__timeline-item">
             <v-icon icon="mdi-circle-small" size="20" color="success" />
@@ -129,13 +141,11 @@ const emit = defineEmits<{
 
 const request = computed(() => props.request)
 
-const editEstimatedDate = ref('')
 const editActualDate = ref('')
 const savingDates = ref(false)
 
 watch(() => props.request, (r) => {
   if (r) {
-    editEstimatedDate.value = r.estimated_collection_date?.slice(0, 10) ?? ''
     editActualDate.value = r.actual_collection_date?.slice(0, 10) ?? ''
   }
 }, { immediate: true })
@@ -145,7 +155,6 @@ async function saveDates() {
   savingDates.value = true
   try {
     await api.patch(`/collection-requests/${props.request.id}/`, {
-      estimated_collection_date: editEstimatedDate.value || null,
       actual_collection_date: editActualDate.value || null,
     })
     emit('saved')
@@ -176,12 +185,24 @@ const materialDisplay = computed(() => {
 })
 
 function statusLabel(s: string) {
-  const m: Record<string, string> = { new: 'Новый', accepted: 'Принят', completed: 'Завершён' }
+  const m: Record<string, string> = {
+    new: 'Новый',
+    accepted: 'Принят',
+    pending_confirmation: 'Ожидает подтверждения',
+    completed: 'Завершён',
+    cancelled: 'Отменён',
+  }
   return m[s] || s
 }
 
 function statusColor(s: string) {
-  const m: Record<string, string> = { new: 'warning', accepted: 'info', completed: 'success' }
+  const m: Record<string, string> = {
+    new: 'warning',
+    accepted: 'info',
+    pending_confirmation: 'warning',
+    completed: 'success',
+    cancelled: 'grey',
+  }
   return m[s] || 'grey'
 }
 
